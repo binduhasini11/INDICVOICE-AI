@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.travel import router as travel_router
 from backend.api.products import router as products_router
+from backend.api.speech import router as speech_router
 
 
 app = FastAPI(
