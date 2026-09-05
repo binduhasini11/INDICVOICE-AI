@@ -1,0 +1,6 @@
+backend/.env
+backend/venv/
+__pycache__/
+*.pyc
+*.mp4
+*.wav
