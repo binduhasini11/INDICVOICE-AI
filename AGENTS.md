@@ -190,11 +190,11 @@ IndicVoice AI natively processes code-switched queries:
 
 ---
 
-## 8. Verification & Running Tests
+## 8. Verification & Running Commands
 
-### Running Python Backend Tests:
+### Running Type-Check & Linter:
 ```bash
-python3 -m unittest discover -s backend/tests -v
+npm run lint
 ```
 
 ### Running the Full-Stack Dev Server:

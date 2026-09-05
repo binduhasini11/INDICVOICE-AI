@@ -1,10 +1,12 @@
-import { Intent, SearchResult } from "./types.js";
+import { Intent, SearchResult, DomainResult, BookingDetails } from "./types.js";
 
 export function generateNaturalResponse(
   intent: Intent,
   results: SearchResult[],
   needsClarification = false,
-  clarificationQuestion?: string | null
+  clarificationQuestion?: string | null,
+  domains?: DomainResult[],
+  booking?: BookingDetails | null
 ): string {
   const lang = intent.language || "en";
   const intentType = intent.intent || "general_chat";
@@ -13,6 +15,90 @@ export function generateNaturalResponse(
     return clarificationQuestion;
   }
 
+  // Booking action response
+  if (intentType === "booking_action") {
+    if (intent.action === "explain") {
+      const topItem = results[0];
+      if (topItem) {
+        const reason = topItem.recommendation_reason || "it offers the best combination of price and reliability";
+        if (lang === "ta-en") {
+          return `Indha option yen recommend pannen na: ${reason}. Fare: ₹${topItem.price || "N/A"}, operator: ${topItem.source || "Verified"}.`;
+        } else if (lang === "hi-en") {
+          return `Maine ye option isliye recommend kiya kyunki: ${reason}. Fare ₹${topItem.price || "N/A"} aur timings best hain.`;
+        } else {
+          return `I recommended this option because: ${reason}. It provides optimal value on this route.`;
+        }
+      }
+      return "I selected the top recommendation based on price efficiency, duration, and verified ratings.";
+    }
+
+    if (intent.action === "book") {
+      const topItem = results[0];
+      if (topItem) {
+        if (lang === "ta-en") {
+          return `Ungaloda option: ${topItem.title} (₹${topItem.price || "N/A"}). Official ${topItem.source || "portal"} booking link keela ready-a irukku, adhai click panni ticket book pannikonga!`;
+        } else if (lang === "hi-en") {
+          return `Aapki selected option: ${topItem.title} (₹${topItem.price || "N/A"}). Neeche diye gaye official ${topItem.source || "portal"} booking link par click karke direct book karein.`;
+        } else {
+          return `Here is your booking option for ${topItem.title} (₹${topItem.price || "N/A"}). Click the official booking link below to proceed with your booking on ${topItem.source || "the provider portal"}.`;
+        }
+      }
+      return "Click the booking link on your chosen option below to book directly.";
+    }
+  }
+
+  // Multi-Domain Response (Travel + Product + Web)
+  if (intentType === "multi_domain_search" && domains && domains.length > 0) {
+    const travelDomain = domains.find((d) => d.domain === "travel");
+    const productDomain = domains.find((d) => d.domain === "product");
+    const webDomain = domains.find((d) => d.domain === "web");
+
+    if (lang === "ta-en") {
+      const parts: string[] = [];
+      if (travelDomain && travelDomain.results.length > 0) {
+        const t = travelDomain.results[0];
+        parts.push(`Travel-ku ${travelDomain.results.length} options iruku, top pick ${t.title} (₹${t.price})`);
+      }
+      if (productDomain && productDomain.results.length > 0) {
+        const p = productDomain.results[0];
+        parts.push(`Product-ku ${p.title} (₹${p.price}) nalla choice`);
+      }
+      if (webDomain && webDomain.results.length > 0) {
+        parts.push(`Aprom visit panna best spots and web updates eduthuten`);
+      }
+      return `Super! Unga multi-domain query-ku ellam ready: ${parts.join("; ")}. Keela ellathayum check pannunga!`;
+    } else if (lang === "hi-en") {
+      const parts: string[] = [];
+      if (travelDomain && travelDomain.results.length > 0) {
+        const t = travelDomain.results[0];
+        parts.push(`Travel ke liye ${travelDomain.results.length} options mile, best choice: ${t.title} (₹${t.price})`);
+      }
+      if (productDomain && productDomain.results.length > 0) {
+        const p = productDomain.results[0];
+        parts.push(`Product ke liye ${p.title} (₹${p.price}) sabse accha option hai`);
+      }
+      if (webDomain && webDomain.results.length > 0) {
+        parts.push(`Aur places to visit ki details bhi dhundh li hain`);
+      }
+      return `Badhiya! Aapki combined query ke saare results ready hain: ${parts.join("; ")}. Neeche details dekhein!`;
+    } else {
+      const parts: string[] = [];
+      if (travelDomain && travelDomain.results.length > 0) {
+        const t = travelDomain.results[0];
+        parts.push(`Travel: ${travelDomain.results.length} options found (Top pick: ${t.title} at ₹${t.price})`);
+      }
+      if (productDomain && productDomain.results.length > 0) {
+        const p = productDomain.results[0];
+        parts.push(`Product: ${p.title} (₹${p.price})`);
+      }
+      if (webDomain && webDomain.results.length > 0) {
+        parts.push(`Web: ${webDomain.results.length} attractions & guides retrieved`);
+      }
+      return `I've coordinated your multi-domain request across Travel, Products, and Web Search: ${parts.join(" • ")}. Explore each section below!`;
+    }
+  }
+
+  // Single Domain Responses
   if (intentType === "travel_search") {
     const origin = intent.origin || "origin";
     const destination = intent.destination || "destination";
@@ -77,3 +163,4 @@ export function generateNaturalResponse(
 
   return "How else may I help you today?";
 }
+

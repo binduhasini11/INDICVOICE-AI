@@ -1,10 +1,12 @@
-import { Intent } from "./types.js";
+import { Intent, SearchResult } from "./types.js";
 import { extractCities } from "./intent.js";
 
 export class SessionMemory {
   sessionId: string;
   messages: { role: string; content: string }[] = [];
   lastIntent: Intent | null = null;
+  lastResults: SearchResult[] = [];
+  lastDomains: any[] = [];
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -18,8 +20,17 @@ export class SessionMemory {
     this.lastIntent = intent;
   }
 
+  updateResults(results: SearchResult[], domains?: any[]) {
+    this.lastResults = results || [];
+    if (domains) this.lastDomains = domains;
+  }
+
   getContext(): Intent | null {
     return this.lastIntent;
+  }
+
+  getLastResults(): SearchResult[] {
+    return this.lastResults;
   }
 }
 

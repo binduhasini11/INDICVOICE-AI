@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
-import VoiceButton from "./components/VoiceButton";
+import { useState, useRef } from "react";
+import VoiceHome from "./components/VoiceHome";
 import Transcript from "./components/Transcript";
 import IntentCard from "./components/IntentCard";
 import SearchStatus from "./components/SearchStatus";
 import ResultCard from "./components/ResultCard";
-import ChatMessage from "./components/ChatMessage";
+import MultiDomainResults from "./components/MultiDomainResults";
+import FollowUpBar from "./components/FollowUpBar";
 import { sendAgentMessage } from "./api";
 import "./App.css";
 
@@ -14,7 +15,7 @@ function App() {
     try {
       const stored = sessionStorage.getItem("indicvoice_session_id");
       if (stored) return stored;
-      const newId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      const newId = typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       sessionStorage.setItem("indicvoice_session_id", newId);
@@ -24,28 +25,25 @@ function App() {
     }
   });
 
-  // Central Agent State Workflow
+  // Main UI State: 'home' (clean discovery) vs 'results' (workspace)
+  const [viewMode, setViewMode] = useState("home");
   const [transcript, setTranscript] = useState("");
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "Vanakkam & Namaste! I am IndicVoice AI. Speak naturally in Tamil-English, Hindi-English, or English for travel bookings, products, or web queries.",
-    },
-  ]);
+  const [assistantMessage, setAssistantMessage] = useState("");
   const [intent, setIntent] = useState(null);
+  const [domains, setDomains] = useState([]);
   const [results, setResults] = useState([]);
   const [resultType, setResultType] = useState(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [inputQuery, setInputQuery] = useState("");
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [preferenceNotice, setPreferenceNotice] = useState("");
 
-  const messagesEndRef = useRef(null);
+  const resultsTopRef = useRef(null);
 
-  // Optional Text-To-Speech for oral-first experience
+  // Text-To-Speech for oral-first experience
   const speakText = (text) => {
-    if (!ttsEnabled) return;
+    if (!ttsEnabled || !text) return;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -54,33 +52,42 @@ function App() {
         utterance.pitch = 1.0;
         window.speechSynthesis.speak(utterance);
       } catch (err) {
-        console.warn("TTS playback error:", err);
+        console.warn("TTS playback note:", err);
       }
     }
   };
 
   /**
-   * Process request through the Central AI Agent Orchestration layer.
-   * NO local intent extraction or routing is performed in the frontend.
+   * Process request through the existing Central AI Agent Orchestrator.
+   * STRICT: Backend is treated as an untouched black box.
    */
   const processRequest = async (text) => {
     if (!text || !text.trim() || loading) return;
 
-    const userMessage = text.trim();
-    setTranscript(userMessage);
-    setInputQuery("");
+    const userQuery = text.trim();
+    setTranscript(userQuery);
     setError("");
-
-    // Add user turn to conversation history
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
-
+    setViewMode("results");
     setLoading(true);
     setStatus("Understanding...");
 
+    // Check if user is refining a preference (e.g. "fastest", "under 1000", "only buses")
+    const lower = userQuery.toLowerCase();
+    if (lower.includes("fastest") || lower.includes("speed")) {
+      setPreferenceNotice("PREFERENCE UPDATED · FASTEST");
+    } else if (lower.includes("under") || lower.includes("budget") || lower.includes("sasta")) {
+      setPreferenceNotice("BUDGET UPDATED");
+    } else if (lower.includes("bus")) {
+      setPreferenceNotice("FILTER APPLIED · BUSES");
+    } else if (lower.includes("train")) {
+      setPreferenceNotice("FILTER APPLIED · TRAINS");
+    } else {
+      setPreferenceNotice("");
+    }
+
     try {
-      // Step 1: Central agent pipeline executes on backend
       const response = await sendAgentMessage({
-        message: userMessage,
+        message: userQuery,
         sessionId,
       });
 
@@ -88,324 +95,234 @@ function App() {
 
       if (response.status === "error") {
         setError(response.message || "Failed to process request");
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: response.message || "I encountered an issue processing your request.",
-          },
-        ]);
+        setAssistantMessage(response.message || "I encountered an issue processing your request.");
         setStatus("");
         setLoading(false);
         return;
       }
 
-      // Step 2: Update state with normalized data from central agent
       setIntent(response.intent || null);
+      setDomains(response.domains || []);
       setResults(response.results || []);
       setResultType(response.result_type || null);
 
-      const assistantMsg = response.message || "I have processed your request.";
-      setMessages((prev) => [...prev, { role: "assistant", content: assistantMsg }]);
+      const reply = response.message || "Here is what I found for you.";
+      setAssistantMessage(reply);
+      speakText(reply);
 
-      speakText(assistantMsg);
-      setStatus(response.status === "needs_clarification" ? "Awaiting your response" : "Search complete");
+      setStatus("");
+      if (resultsTopRef.current) {
+        resultsTopRef.current.scrollIntoView({ behavior: "smooth" });
+      }
     } catch (err) {
-      console.error("Central agent communication error:", err);
-      setError(err.message || "Could not connect to IndicVoice AI backend.");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, I couldn't reach the agent backend. Please try again.",
-        },
-      ]);
+      console.error("Agent communication error:", err);
+      setError(err.message || "Could not connect to IndicVoice AI backend. Please verify your connection.");
+      setAssistantMessage("I couldn't reach the agent backend. Please try again.");
       setStatus("");
     } finally {
       setLoading(false);
     }
   };
 
-  const resetConversation = () => {
-    try {
-      const newId = (typeof crypto !== "undefined" && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `session_${Date.now()}`;
-      sessionStorage.setItem("indicvoice_session_id", newId);
-    } catch (e) {}
+  const handleResetToHome = () => {
+    setViewMode("home");
     setTranscript("");
+    setAssistantMessage("");
     setIntent(null);
+    setDomains([]);
     setResults([]);
     setResultType(null);
     setStatus("");
     setError("");
-    setMessages([
-      {
-        role: "assistant",
-        content: "Session reset! What would you like to search today?",
-      },
-    ]);
+    setPreferenceNotice("");
   };
 
-  const samplePrompts = [
-    {
-      label: "Tamil Travel",
-      query: "Chennai la irundhu Bangalore ku naalaiku morning cheap-a train paathu sollu",
-    },
-    {
-      label: "Hindi Travel",
-      query: "Delhi se Mumbai kal subah cheapest flight chahiye",
-    },
-    {
-      label: "Product Search",
-      query: "5000 ke andar wireless headphones dikhao",
-    },
-    {
-      label: "Web Search",
-      query: "latest AI news search karo",
-    },
-  ];
+  const handleStartFreshSession = () => {
+    try {
+      const newId = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `session_${Date.now()}`;
+      sessionStorage.setItem("indicvoice_session_id", newId);
+    } catch (e) {}
+    handleResetToHome();
+  };
 
   return (
-    <div className="app" id="indicvoice-app">
-      {/* HEADER */}
-      <header className="header" id="app-header">
-        <div className="brand">
-          <div className="brand-icon">◉</div>
-          <div>
-            <h1>IndicVoice AI</h1>
-            <p>Multilingual Voice-First Central Agent</p>
-          </div>
+    <div className="indicvoice-app-root" id="indicvoice-app">
+      {/* TOP MINIMAL APP BAR */}
+      <header className="app-topbar" id="app-topbar">
+        <div className="topbar-left">
+          <button
+            type="button"
+            className="brand-logo-btn"
+            onClick={handleResetToHome}
+            title="Go to Voice Discovery Home"
+          >
+            <span className="brand-dot-indicator"></span>
+            <span className="brand-title-main">INDICVOICE</span>
+          </button>
+          <span className="brand-tagline-sub">Oral Multilingual Assistant</span>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div className="topbar-right">
           <button
+            type="button"
+            className={`tts-toggle-btn ${ttsEnabled ? "active" : ""}`}
             onClick={() => setTtsEnabled(!ttsEnabled)}
-            style={{
-              background: "transparent",
-              border: "1px solid #333644",
-              color: ttsEnabled ? "#a78bfa" : "#666",
-              padding: "6px 12px",
-              borderRadius: "16px",
-              cursor: "pointer",
-              fontSize: "12px",
-            }}
-            title="Toggle Voice Output"
+            title={ttsEnabled ? "Audio output active" : "Audio muted"}
           >
-            {ttsEnabled ? "🔊 Voice ON" : "🔇 Voice OFF"}
+            {ttsEnabled ? "🔊 Voice Output" : "🔇 Muted"}
           </button>
 
-          <button
-            onClick={resetConversation}
-            style={{
-              background: "transparent",
-              border: "1px solid #333644",
-              color: "#9ca3af",
-              padding: "6px 12px",
-              borderRadius: "16px",
-              cursor: "pointer",
-              fontSize: "12px",
-            }}
-            title="Start new conversation session"
-          >
-            ↺ New Session
-          </button>
-
-          <div className="status-pill">● AGENT CONNECTED</div>
+          {viewMode === "results" && (
+            <button
+              type="button"
+              className="new-query-btn"
+              onClick={handleStartFreshSession}
+              title="Start a brand new search session"
+            >
+              ↺ New Session
+            </button>
+          )}
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
-      <main className="main" id="app-main">
-        {/* HERO SECTION */}
-        <section className="hero">
-          <div className="eyebrow">ORAL-FIRST • MULTILINGUAL • AGENTIC</div>
-          <h2>
-            Speak in your language.
-            <br />
-            <span>AI orchestrates the rest.</span>
-          </h2>
+      {/* SCREEN 1: VOICE-FIRST DISCOVERY HOME */}
+      {viewMode === "home" ? (
+        <main className="main-home-viewport">
+          <VoiceHome onQuerySubmit={processRequest} loading={loading} />
+        </main>
+      ) : (
+        /* SCREEN 2: RESULTS WORKSPACE TRANSFORMATION */
+        <main className="main-results-workspace" ref={resultsTopRef}>
+          {/* USER REQUEST TRANSCRIPT BANNER */}
+          <Transcript text={transcript} onReset={handleResetToHome} />
 
-          <p className="hero-description">
-            Ask naturally in Tamil-English (Tanglish), Hindi-English (Hinglish), or English.
-            The central agent detects intent, manages context, and delegates to specialist search agents.
-          </p>
-
-          {/* VOICE INPUT BUTTON */}
-          <div style={{ margin: "20px 0" }}>
-            <VoiceButton onTranscript={processRequest} disabled={loading} />
-          </div>
-
-          {/* TEXT FALLBACK INPUT */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              processRequest(inputQuery);
-            }}
-            style={{
-              display: "flex",
-              maxWidth: "540px",
-              margin: "15px auto 25px",
-              gap: "8px",
-            }}
-          >
-            <input
-              type="text"
-              value={inputQuery}
-              onChange={(e) => setInputQuery(e.target.value)}
-              placeholder="Or type here: e.g. Chennai to Bangalore train..."
-              disabled={loading}
-              style={{
-                flex: 1,
-                padding: "12px 16px",
-                background: "#141620",
-                border: "1px solid #282b3a",
-                borderRadius: "12px",
-                color: "#fff",
-                fontSize: "14px",
-                outline: "none",
-              }}
-            />
-            <button
-              type="submit"
-              disabled={loading || !inputQuery.trim()}
-              style={{
-                padding: "12px 20px",
-                background: "#7c4dff",
-                color: "#fff",
-                border: "none",
-                borderRadius: "12px",
-                fontWeight: "600",
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading || !inputQuery.trim() ? 0.6 : 1,
-              }}
-            >
-              Send
-            </button>
-          </form>
-
-          {/* PROMPT SAMPLES */}
-          <div className="example">
-            <strong>Try sample queries (click to run):</strong>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "8px",
-                justifyContent: "center",
-                marginTop: "10px",
-              }}
-            >
-              {samplePrompts.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => processRequest(item.query)}
-                  disabled={loading}
-                  style={{
-                    background: "#14151f",
-                    border: "1px solid #2b2e40",
-                    color: "#c4b5fd",
-                    padding: "6px 14px",
-                    borderRadius: "16px",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "border-color 0.2s",
-                  }}
-                  title={item.query}
-                >
-                  <span style={{ color: "#777", marginRight: "6px" }}>{item.label}:</span>
-                  “{item.query.length > 36 ? item.query.substring(0, 36) + "..." : item.query}”
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* RESULTS & AGENT CONVERSATION AREA */}
-        <section className="results-section" id="results-section">
-          {/* CONVERSATION HISTORY CHAT */}
-          {messages.length > 0 && (
-            <div
-              className="chat-history"
-              style={{
-                marginBottom: "24px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-              }}
-            >
-              <div className="section-label" style={{ marginBottom: "6px" }}>
-                CONVERSATION HISTORY
-              </div>
-              {messages.map((m, idx) => (
-                <ChatMessage key={idx} message={m.content} type={m.role} />
-              ))}
-              <div ref={messagesEndRef} />
+          {/* PREFERENCE UPDATE PILL IF APPLIED */}
+          {preferenceNotice && (
+            <div className="preference-notice-pill" aria-live="polite">
+              <span className="notice-icon">✓</span>
+              <span>{preferenceNotice}</span>
             </div>
           )}
 
-          {/* TRANSCRIPT DISPLAY */}
-          {transcript && <Transcript text={transcript} />}
-
-          {/* INTENT UNDERSTANDING CARD */}
+          {/* UNDERSTANDING BREAKDOWN & LANGUAGE */}
           {intent && <IntentCard intent={intent} />}
 
-          {/* SEARCH STATUS SPINNER */}
-          {status && <SearchStatus status={status} />}
+          {/* SEARCH PROGRESS INDICATOR */}
+          {status && <SearchStatus status={status} query={transcript} />}
 
-          {/* ERROR DISPLAY */}
+          {/* ERROR NOTIFICATION */}
           {error && (
-            <div className="error-box" id="error-box">
-              ⚠️ {error}
+            <div className="human-error-banner" id="error-banner">
+              <span className="error-icon">⚠️</span>
+              <div className="error-body">
+                <h4>Something went wrong while finding your results</h4>
+                <p>{error}</p>
+                <button
+                  type="button"
+                  className="error-retry-btn"
+                  onClick={() => processRequest(transcript)}
+                >
+                  Try Again
+                </button>
+              </div>
             </div>
           )}
 
-          {/* SPECIALIST RESULT CARDS */}
-          {results.length > 0 ? (
-            <div className="results-list" id="results-list">
-              <div className="results-heading">
-                {resultType === "travel"
-                  ? "TRAVEL OPTIONS FOUND"
-                  : resultType === "product"
-                  ? "PRODUCT RECOMMENDATIONS"
-                  : resultType === "web"
-                  ? "WEB SEARCH RESULTS"
-                  : "RESULTS"}
+          {/* ASSISTANT ORAL RESPONSE SUMMARY */}
+          {assistantMessage && !loading && (
+            <div className="oral-response-card" id="assistant-oral-response">
+              <div className="oral-card-top">
+                <span className="oral-badge">ORAL RESPONSE</span>
+                <button
+                  type="button"
+                  className="listen-again-btn"
+                  onClick={() => speakText(assistantMessage)}
+                  title="Listen to this response again"
+                >
+                  🔊 Read Aloud
+                </button>
+              </div>
+              <p className="oral-text">{assistantMessage}</p>
+            </div>
+          )}
+
+          {/* WORKSPACE RESULTS: MULTI-DOMAIN OR SINGLE-DOMAIN */}
+          {domains && domains.length > 0 ? (
+            <MultiDomainResults domains={domains} intent={intent} />
+          ) : results.length > 0 ? (
+            <section className="single-domain-section" id="single-domain-results">
+              <div className="section-title-wrap">
+                <span className="section-eyebrow">
+                  {resultType === "travel"
+                    ? "TRAVEL"
+                    : resultType === "product"
+                    ? "PRODUCT"
+                    : resultType === "web"
+                    ? "INFORMATION"
+                    : "FOUND FOR YOU"}
+                </span>
+                <h3 className="section-heading">
+                  {resultType === "travel"
+                    ? "Recommended Travel Options"
+                    : resultType === "product"
+                    ? "Product Recommendations"
+                    : resultType === "web"
+                    ? "Places & Insights"
+                    : "Best Matching Options"}
+                </h3>
               </div>
 
-              {results.map((res, index) => (
-                <ResultCard key={res.id || res.metadata?.id || index} result={res} index={index} />
-              ))}
-            </div>
+              <div className="results-vertical-stack">
+                {results.map((res, index) => (
+                  <ResultCard
+                    key={res.id || res.metadata?.id || index}
+                    result={res}
+                    index={index}
+                    intentBudget={intent?.budget}
+                  />
+                ))}
+              </div>
+            </section>
           ) : (
-            intent?.intent === "travel_search" && !loading && !error && !intent.needs_clarification && (
-              <div className="results-list" id="results-empty">
-                <div
-                  className="result-card"
-                  id="empty-travel-state"
-                  style={{
-                    padding: "24px",
-                    textAlign: "center",
-                    color: "var(--text-muted, #94a3b8)",
-                    fontSize: "14px"
-                  }}
-                >
-                  <span style={{ fontSize: "28px", display: "block", marginBottom: "8px" }}>
-                    {intent.transport_type === "bus" ? "🚌" : intent.transport_type === "flight" ? "✈️" : "🚆"}
-                  </span>
-                  No {intent.transport_type === "bus" ? "buses" : intent.transport_type === "train" ? "trains" : "travel options"} found for {intent.origin || "Origin"} → {intent.destination || "Destination"}
+            !loading && !error && (
+              <div className="empty-state-card" id="empty-state-notice">
+                <span className="empty-glyph">🔎</span>
+                <h3>I couldn't find a matching option</h3>
+                <p>Try saying or typing your request with a different budget, city, or date.</p>
+                <div className="empty-actions">
+                  <button
+                    type="button"
+                    className="empty-action-btn"
+                    onClick={handleResetToHome}
+                  >
+                    ← Try Another Query
+                  </button>
                 </div>
               </div>
             )
           )}
-        </section>
-      </main>
+
+          {/* CONTEXTUAL FOLLOW-UP REFINEMENT BAR */}
+          <FollowUpBar
+            onFollowUp={processRequest}
+            activeIntent={intent}
+            loading={loading}
+          />
+        </main>
+      )}
 
       {/* FOOTER */}
-      <footer className="footer" id="app-footer">
-        <span>IndicVoice AI • Central Agent Orchestration</span>
-        <span>Multilingual • Voice-First • Oral Assistant</span>
+      <footer className="app-minimal-footer" id="app-footer">
+        <div className="footer-left">
+          <span>IndicVoice AI</span>
+          <span className="footer-dot">·</span>
+          <span>Oral-First Multilingual Assistant</span>
+        </div>
+        <div className="footer-right">
+          <span>English · Tanglish · Hinglish</span>
+        </div>
       </footer>
     </div>
   );

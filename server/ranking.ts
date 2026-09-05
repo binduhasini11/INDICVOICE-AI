@@ -273,31 +273,86 @@ export function rankResults(
       requested_departure_time: options?.requested_departure_time || options?.departure_time,
       requested_arrival_time: options?.requested_arrival_time || options?.arrival_time,
     };
-    return rankTravelResults(results, rankOpts);
+    const ranked = rankTravelResults(results, rankOpts);
+    return attachRecommendationReasons(ranked, "travel", rankOpts);
   }
 
   // Non-travel rankings (product search, etc.)
-  if (!preference) {
-    return results;
-  }
+  let ranked = [...results];
+  const pref = (preference || options?.preference || "").toLowerCase().trim();
 
-  const pref = preference.toLowerCase().trim();
-
-  if (["cheapest", "lowest_price", "low_price", "budget", "cheap"].includes(pref)) {
-    return [...results].sort((a, b) => {
+  if (["cheapest", "lowest_price", "low_price", "budget", "cheap", "sasta"].includes(pref)) {
+    ranked.sort((a, b) => {
       const pA = a.price != null ? a.price : Infinity;
       const pB = b.price != null ? b.price : Infinity;
       return pA - pB;
     });
-  }
-
-  if (["rating", "best_rated", "top_rated"].includes(pref)) {
-    return [...results].sort((a, b) => {
+  } else if (["rating", "best_rated", "top_rated", "accha", "best"].includes(pref)) {
+    ranked.sort((a, b) => {
       const rA = a.metadata?.rating || 0;
       const rB = b.metadata?.rating || 0;
       return rB - rA;
     });
   }
 
-  return results;
+  const domain = results[0]?.type === "product" ? "product" : results[0]?.type === "web" ? "web" : "travel";
+  return attachRecommendationReasons(ranked, domain, { preference: pref });
+}
+
+/**
+ * Attaches clear, transparent human-understandable explanation tags to recommended items.
+ */
+export function attachRecommendationReasons(
+  results: SearchResult[],
+  domain: "travel" | "product" | "web",
+  options?: any
+): SearchResult[] {
+  if (!results || results.length === 0) return results;
+
+  return results.map((item, index) => {
+    let reason = item.recommendation_reason;
+    if (reason) return item;
+
+    if (domain === "travel") {
+      const isCheapest = index === 0 && (options?.preference === "cheapest" || results.every((r) => (item.price ?? Infinity) <= (r.price ?? Infinity)));
+      const isFastest = item.metadata?.duration_minutes && results.every((r) => (item.metadata?.duration_minutes ?? Infinity) <= (r.metadata?.duration_minutes ?? Infinity));
+      const hasGoodSeats = (item.metadata?.available_seats ?? 0) > 10;
+
+      if (index === 0 && isCheapest) {
+        reason = `Top Pick: Lowest fare (₹${item.price}) with direct route`;
+      } else if (isFastest) {
+        reason = `Speed Pick: Shortest journey time (${item.metadata?.duration || "Fast"})`;
+      } else if (index === 0) {
+        reason = `Top Recommendation: Best balance of departure time (${item.metadata?.departure}) and fare`;
+      } else if (hasGoodSeats) {
+        reason = `High Availability: ${item.metadata?.available_seats} confirmed seats ready`;
+      } else {
+        reason = `Alternative option departing at ${item.metadata?.departure || "scheduled time"}`;
+      }
+    } else if (domain === "product") {
+      const rating = item.metadata?.rating;
+      const price = item.price;
+      if (index === 0 && rating && rating >= 4.3) {
+        reason = `Top Rated: ${rating}★ customer rating with best feature set`;
+      } else if (index === 0) {
+        reason = `Best Value: Within target budget at ₹${price}`;
+      } else if (price && results.every((r) => price <= (r.price ?? Infinity))) {
+        reason = `Budget Choice: Most economical price tag (₹${price})`;
+      } else {
+        reason = `Verified seller option on ${item.source || "online store"}`;
+      }
+    } else {
+      // web domain
+      if (item.metadata?.is_live) {
+        reason = `Live Result: Verified real-time coverage from ${item.source}`;
+      } else {
+        reason = `Authoritative Guide: Comprehensive regional travel & visitor information`;
+      }
+    }
+
+    return {
+      ...item,
+      recommendation_reason: reason,
+    };
+  });
 }

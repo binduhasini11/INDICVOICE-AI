@@ -5,7 +5,6 @@ import { calculateDurationMinutes, rankTravelResults } from "../ranking.js";
 
 const FALLBACK_DATA_PATHS = [
   path.resolve(process.cwd(), "data", "fallback_travel.json"),
-  path.resolve(process.cwd(), "backend", "data", "fallback_travel.json"),
 ];
 
 export const CITY_ALIASES: Record<string, string> = {
@@ -168,6 +167,69 @@ function hashString(str: string): number {
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+export interface FormattedTravelDates {
+  dojRedBus: string;      // 06-Sep-2026
+  dmySlash: string;       // 06/09/2026
+  dmyDash: string;        // 06-09-2026
+  isoDate: string;        // 2026-09-06
+  compactDate: string;    // 20260906
+  day: number;
+  month: number;
+  year: number;
+}
+
+/**
+ * Normalizes travel dates into standard booking search query parameter formats.
+ */
+export function formatParsedTravelDates(travelDate?: string | null): FormattedTravelDates {
+  const now = new Date();
+  let targetDate: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // default tomorrow
+
+  if (travelDate && typeof travelDate === "string") {
+    const dStr = travelDate.trim().toLowerCase();
+    if (dStr === "today" || dStr === "innaiku" || dStr === "indru" || dStr === "aaj") {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (dStr === "tomorrow" || dStr === "naalaiku" || dStr === "naalai" || dStr === "kal") {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    } else if (dStr === "day after tomorrow" || dStr === "naalanniki" || dStr === "parson") {
+      targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+    } else {
+      const isoMatch = dStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (isoMatch) {
+        targetDate = new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+      } else {
+        const dmyMatch = dStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (dmyMatch) {
+          targetDate = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+        } else {
+          const parsed = new Date(travelDate);
+          if (!isNaN(parsed.getTime())) {
+            targetDate = parsed;
+          }
+        }
+      }
+    }
+  }
+
+  const yyyy = targetDate.getFullYear();
+  const mmNum = targetDate.getMonth() + 1;
+  const ddNum = targetDate.getDate();
+  const mm = String(mmNum).padStart(2, "0");
+  const dd = String(ddNum).padStart(2, "0");
+  const monName = MONTHS_SHORT[targetDate.getMonth()];
+
+  return {
+    dojRedBus: `${dd}-${monName}-${yyyy}`,
+    dmySlash: `${dd}/${mm}/${yyyy}`,
+    dmyDash: `${dd}-${mm}-${yyyy}`,
+    isoDate: `${yyyy}-${mm}-${dd}`,
+    compactDate: `${yyyy}${mm}${dd}`,
+    day: ddNum,
+    month: mmNum,
+    year: yyyy,
+  };
+}
+
 /**
  * Normalizes travel dates into standard RedBus date parameter formats:
  * - DD-Mon-YYYY (e.g. 06-Sep-2026) for ?doj= query parameter
@@ -178,47 +240,10 @@ export function formatRedBusDate(travelDate?: string | null): { doj: string; dat
   const dStr = travelDate.trim().toLowerCase();
   if (!dStr || dStr === "null" || dStr === "undefined") return null;
 
-  const now = new Date();
-  let targetDate: Date | null = null;
-
-  if (dStr === "today" || dStr === "innaiku" || dStr === "indru" || dStr === "aaj") {
-    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  } else if (dStr === "tomorrow" || dStr === "naalaiku" || dStr === "naalai" || dStr === "kal") {
-    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  } else if (dStr === "day after tomorrow" || dStr === "naalanniki" || dStr === "parson") {
-    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
-  } else {
-    // Check YYYY-MM-DD
-    const isoMatch = dStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (isoMatch) {
-      targetDate = new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
-    } else {
-      // Check DD-MM-YYYY or DD/MM/YYYY
-      const dmyMatch = dStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-      if (dmyMatch) {
-        targetDate = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
-      } else {
-        // Try native Date parsing
-        const parsed = new Date(travelDate);
-        if (!isNaN(parsed.getTime())) {
-          targetDate = parsed;
-        }
-      }
-    }
-  }
-
-  if (!targetDate || isNaN(targetDate.getTime())) {
-    return null;
-  }
-
-  const yyyy = targetDate.getFullYear();
-  const mm = String(targetDate.getMonth() + 1).padStart(2, "0");
-  const dd = String(targetDate.getDate()).padStart(2, "0");
-  const monName = MONTHS_SHORT[targetDate.getMonth()];
-
+  const dates = formatParsedTravelDates(travelDate);
   return {
-    doj: `${dd}-${monName}-${yyyy}`,
-    dateParam: `${yyyy}${mm}${dd}`,
+    doj: dates.dojRedBus,
+    dateParam: dates.compactDate,
   };
 }
 
@@ -231,7 +256,7 @@ export function buildBusBookingUrl(
   destination: string,
   operator?: string,
   busType?: string,
-  travelDate?: string
+  travelDate?: string | null
 ): string {
   const getCitySlug = (name: string): string => {
     const c = (name || "").toLowerCase().trim();
@@ -248,9 +273,11 @@ export function buildBusBookingUrl(
   const params: string[] = [];
 
   // Add date parameters if travel date is provided
-  const dateFmt = formatRedBusDate(travelDate);
-  if (dateFmt) {
-    params.push(`doj=${encodeURIComponent(dateFmt.doj)}`);
+  if (travelDate) {
+    const dateFmt = formatRedBusDate(travelDate);
+    if (dateFmt) {
+      params.push(`doj=${encodeURIComponent(dateFmt.doj)}`);
+    }
   }
 
   if (operator && operator !== "State RTC" && operator !== "Private Express") {
@@ -274,7 +301,7 @@ export function sanitizeAndVerifyBusUrl(
   destination: string,
   operator?: string,
   busType?: string,
-  travelDate?: string
+  travelDate?: string | null
 ): string {
   if (
     !url ||
@@ -282,7 +309,9 @@ export function sanitizeAndVerifyBusUrl(
     url === "#" ||
     url === "null" ||
     url.includes("localhost") ||
-    url.includes("example.com")
+    url.includes("example.com") ||
+    url === "https://www.redbus.in" ||
+    url === "https://www.redbus.in/"
   ) {
     return buildBusBookingUrl(origin, destination, operator, busType, travelDate);
   }
@@ -313,6 +342,234 @@ export function sanitizeAndVerifyBusUrl(
   return url;
 }
 
+/**
+ * Builds a verified train search/booking URL on IRCTC with station codes and journey date.
+ */
+export function buildTrainBookingUrl(
+  origin: string,
+  destination: string,
+  trainNumber?: string,
+  travelDate?: string | null,
+  source?: string
+): string {
+  const normOrig = normalizeCity(origin);
+  const normDest = normalizeCity(destination);
+  const origMeta = CITY_REGISTRY[normOrig];
+  const destMeta = CITY_REGISTRY[normDest];
+  const fromStn = origMeta?.stnCode || origin.slice(0, 3).toUpperCase();
+  const toStn = destMeta?.stnCode || destination.slice(0, 3).toUpperCase();
+  const dateFmt = formatParsedTravelDates(travelDate);
+
+  const base = "https://www.irctc.co.in/nget/booking/train-list";
+  const params = [
+    `fromStn=${encodeURIComponent(fromStn)}`,
+    `toStn=${encodeURIComponent(toStn)}`,
+    `journeyDate=${encodeURIComponent(dateFmt.dmyDash)}`,
+  ];
+  if (trainNumber) {
+    params.push(`trainNo=${encodeURIComponent(trainNumber)}`);
+  }
+  return `${base}?${params.join("&")}`;
+}
+
+/**
+ * Validates and sanitizes train URLs so they preserve origin, destination, journey date, and train number.
+ */
+export function sanitizeAndVerifyTrainUrl(
+  url: string | null | undefined,
+  origin: string,
+  destination: string,
+  trainNumber?: string,
+  travelDate?: string | null,
+  source?: string
+): string {
+  const normOrig = normalizeCity(origin);
+  const normDest = normalizeCity(destination);
+  const origMeta = CITY_REGISTRY[normOrig];
+  const destMeta = CITY_REGISTRY[normDest];
+  const fromStn = origMeta?.stnCode || origin.slice(0, 3).toUpperCase();
+  const toStn = destMeta?.stnCode || destination.slice(0, 3).toUpperCase();
+  const dateFmt = formatParsedTravelDates(travelDate);
+
+  if (
+    !url ||
+    typeof url !== "string" ||
+    url === "#" ||
+    url === "null" ||
+    url.includes("localhost") ||
+    url.includes("example.com") ||
+    url === "https://www.irctc.co.in" ||
+    url === "https://www.irctc.co.in/" ||
+    url === "https://irctc.co.in" ||
+    url === "https://irctc.co.in/"
+  ) {
+    return buildTrainBookingUrl(origin, destination, trainNumber, travelDate, source);
+  }
+
+  // If url is an IRCTC train booking search URL, ensure station codes and journey date are present
+  if (url.includes("irctc.co.in")) {
+    try {
+      const parsedUrl = new URL(url);
+      const tNo = parsedUrl.searchParams.get("trainNo") || trainNumber;
+      parsedUrl.searchParams.set("fromStn", fromStn);
+      parsedUrl.searchParams.set("toStn", toStn);
+      parsedUrl.searchParams.set("journeyDate", dateFmt.dmyDash);
+      if (tNo) {
+        parsedUrl.searchParams.set("trainNo", tNo);
+      }
+      return parsedUrl.toString();
+    } catch {
+      return buildTrainBookingUrl(origin, destination, trainNumber, travelDate, source);
+    }
+  }
+
+  return url;
+}
+
+/**
+ * Builds a verified flight search URL on MakeMyTrip prefilling origin airport, destination airport, and date.
+ */
+export function buildFlightBookingUrl(
+  origin: string,
+  destination: string,
+  flightNumber?: string,
+  airlineOrSource?: string,
+  travelDate?: string | null
+): string {
+  const normOrig = normalizeCity(origin);
+  const normDest = normalizeCity(destination);
+  const origMeta = CITY_REGISTRY[normOrig];
+  const destMeta = CITY_REGISTRY[normDest];
+  const origAirport = origMeta?.airportCode || origin.slice(0, 3).toUpperCase();
+  const destAirport = destMeta?.airportCode || destination.slice(0, 3).toUpperCase();
+  const dateFmt = formatParsedTravelDates(travelDate);
+
+  // MakeMyTrip standard flight search format: itinerary=DEL-BOM-DD/MM/YYYY
+  return `https://www.makemytrip.com/flight/search?itinerary=${encodeURIComponent(origAirport)}-${encodeURIComponent(destAirport)}-${encodeURIComponent(dateFmt.dmySlash)}&tripType=O&paxType=A-1_C-0_I-0&intl=false&cabinClass=E`;
+}
+
+/**
+ * Validates and sanitizes flight URLs, ensuring users aren't directed to bare airline homepages.
+ */
+export function sanitizeAndVerifyFlightUrl(
+  url: string | null | undefined,
+  origin: string,
+  destination: string,
+  flightNumber?: string,
+  airlineOrSource?: string,
+  travelDate?: string | null
+): string {
+  const isBareHomepageOrBroken =
+    !url ||
+    typeof url !== "string" ||
+    url === "#" ||
+    url === "null" ||
+    url.includes("localhost") ||
+    url.includes("example.com") ||
+    url === "https://www.goindigo.in" ||
+    url === "https://www.goindigo.in/" ||
+    url === "https://goindigo.in" ||
+    url === "https://goindigo.in/" ||
+    url === "https://www.airindia.com" ||
+    url === "https://www.airindia.com/" ||
+    url === "https://airindia.com" ||
+    url === "https://airindia.com/" ||
+    url === "https://www.makemytrip.com" ||
+    url === "https://www.makemytrip.com/" ||
+    url.includes("flight-status") ||
+    url.includes("flight-details");
+
+  if (isBareHomepageOrBroken) {
+    return buildFlightBookingUrl(origin, destination, flightNumber, airlineOrSource, travelDate);
+  }
+
+  if (url.includes("makemytrip.com/flight/search")) {
+    const normOrig = normalizeCity(origin);
+    const normDest = normalizeCity(destination);
+    const origMeta = CITY_REGISTRY[normOrig];
+    const destMeta = CITY_REGISTRY[normDest];
+    const origAirport = origMeta?.airportCode || origin.slice(0, 3).toUpperCase();
+    const destAirport = destMeta?.airportCode || destination.slice(0, 3).toUpperCase();
+    const dateFmt = formatParsedTravelDates(travelDate);
+    try {
+      const parsedUrl = new URL(url);
+      parsedUrl.searchParams.set("itinerary", `${origAirport}-${destAirport}-${dateFmt.dmySlash}`);
+      return parsedUrl.toString();
+    } catch {
+      return buildFlightBookingUrl(origin, destination, flightNumber, airlineOrSource, travelDate);
+    }
+  }
+
+  return url;
+}
+
+/**
+ * Builds a real cab/taxi booking search URL with origin and destination for Uber or Ola.
+ */
+export function buildCabBookingUrl(
+  provider: string,
+  origin: string,
+  destination: string,
+  origMeta?: CityMetadata,
+  destMeta?: CityMetadata
+): string {
+  const p = (provider || "").toLowerCase();
+  const origAddress = origMeta?.name || origin;
+  const destAddress = destMeta?.name || destination;
+
+  if (p.includes("ola")) {
+    let url = `https://book.olacabs.com/?address=${encodeURIComponent(origAddress)}&drop_address=${encodeURIComponent(destAddress)}`;
+    if (origMeta?.lat && origMeta?.lng && destMeta?.lat && destMeta?.lng) {
+      url += `&lat=${origMeta.lat}&lng=${origMeta.lng}&drop_lat=${destMeta.lat}&drop_lng=${destMeta.lng}`;
+    }
+    url += "&utm_source=indicvoice";
+    return url;
+  }
+
+  // Default Uber
+  let url = `https://m.uber.com/ul/?action=setPickup&pickup[formatted_address]=${encodeURIComponent(origAddress)}&dropoff[formatted_address]=${encodeURIComponent(destAddress)}`;
+  if (origMeta?.lat && origMeta?.lng && destMeta?.lat && destMeta?.lng) {
+    url += `&pickup[latitude]=${origMeta.lat}&pickup[longitude]=${origMeta.lng}&dropoff[latitude]=${destMeta.lat}&dropoff[longitude]=${destMeta.lng}`;
+  }
+  return url;
+}
+
+/**
+ * Validates and sanitizes cab URLs so they preserve origin and destination.
+ */
+export function sanitizeAndVerifyCabUrl(
+  url: string | null | undefined,
+  origin: string,
+  destination: string,
+  provider?: string
+): string {
+  const normOrig = normalizeCity(origin);
+  const normDest = normalizeCity(destination);
+  const origMeta = CITY_REGISTRY[normOrig];
+  const destMeta = CITY_REGISTRY[normDest];
+
+  if (
+    !url ||
+    typeof url !== "string" ||
+    url === "#" ||
+    url === "null" ||
+    url.includes("localhost") ||
+    url.includes("example.com") ||
+    url === "https://www.uber.com" ||
+    url === "https://www.uber.com/" ||
+    url === "https://m.uber.com" ||
+    url === "https://m.uber.com/" ||
+    url === "https://www.olacabs.com" ||
+    url === "https://www.olacabs.com/" ||
+    url === "https://book.olacabs.com" ||
+    url === "https://book.olacabs.com/"
+  ) {
+    return buildCabBookingUrl(provider || "Uber", origin, destination, origMeta, destMeta);
+  }
+
+  return url;
+}
+
 export function loadTravelData(): any[] {
   for (const p of FALLBACK_DATA_PATHS) {
     if (fs.existsSync(p)) {
@@ -333,7 +590,8 @@ export function loadTravelData(): any[] {
 function generateDynamicTravelOptions(
   origin: string,
   destination: string,
-  transportType?: string | null
+  transportType?: string | null,
+  travelDate?: string | null
 ): any[] {
   const normOrig = normalizeCity(origin);
   const normDest = normalizeCity(destination);
@@ -377,6 +635,9 @@ function generateDynamicTravelOptions(
   const includeFlights = transportType
     ? transportType.toLowerCase() === "flight"
     : distanceKm >= 350 && !!origMeta.airportCode && !!destMeta.airportCode;
+  const includeCabs = transportType
+    ? transportType.toLowerCase() === "cab" || transportType.toLowerCase() === "taxi"
+    : distanceKm <= 350;
 
   // 1. TRAINS (IRCTC)
   if (includeTrains && distanceKm <= 2400) {
@@ -404,7 +665,7 @@ function generateDynamicTravelOptions(
       price: baseFareSF,
       currency: "INR",
       source: "IRCTC",
-      url: `https://www.irctc.co.in/nget/booking/train-list?fromStn=${origMeta.stnCode}&toStn=${destMeta.stnCode}&trainNo=${t1Num}`,
+      url: buildTrainBookingUrl(origMeta.name, destMeta.name, String(t1Num), travelDate, "IRCTC"),
     });
 
     results.push({
@@ -420,7 +681,7 @@ function generateDynamicTravelOptions(
       price: baseFarePrem,
       currency: "INR",
       source: "IRCTC",
-      url: `https://www.irctc.co.in/nget/booking/train-list?fromStn=${origMeta.stnCode}&toStn=${destMeta.stnCode}&trainNo=${t2Num}`,
+      url: buildTrainBookingUrl(origMeta.name, destMeta.name, String(t2Num), travelDate, "IRCTC"),
     });
 
     results.push({
@@ -436,12 +697,11 @@ function generateDynamicTravelOptions(
       price: baseFareSL,
       currency: "INR",
       source: "IRCTC",
-      url: `https://www.irctc.co.in/nget/booking/train-list?fromStn=${origMeta.stnCode}&toStn=${destMeta.stnCode}&trainNo=${t3Num}`,
+      url: buildTrainBookingUrl(origMeta.name, destMeta.name, String(t3Num), travelDate, "IRCTC"),
     });
   }
 
   // 2. BUSES (KSRTC, SETC, TSRTC, APSRTC, MSRTC, RSRTC, Private Operators)
-  // Interstate buses in India do not operate direct services beyond 1000km (e.g. Delhi to Mumbai is 1400km)
   if (includeBuses && distanceKm <= 1000) {
     const busSpeed = 50;
     const durMinsBus = Math.round((distanceKm / busSpeed) * 60);
@@ -483,7 +743,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: primaryOperator,
       service_id: `${primaryOperator}-DLX-${routeHash % 1000}`,
-      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Ultra Deluxe Non-AC"),
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Ultra Deluxe Non-AC", travelDate),
     });
 
     results.push({
@@ -504,7 +764,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: primaryOperator,
       service_id: `${primaryOperator}-AC-${routeHash % 1000}`,
-      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Airavat AC Semi-Sleeper"),
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Airavat AC Semi-Sleeper", travelDate),
     });
 
     results.push({
@@ -525,7 +785,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: "RedBus",
       service_id: `BUS-EXP-${routeHash % 1000}`,
-      url: buildBusBookingUrl(origMeta.name, destMeta.name, "Private Express", "AC Sleeper"),
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, "Private Express", "AC Sleeper", travelDate),
     });
   }
 
@@ -550,7 +810,7 @@ function generateDynamicTravelOptions(
       price: flightFare1,
       currency: "INR",
       source: "IndiGo",
-      url: `https://www.goindigo.in/flight-status/6E-${flightNum1}`,
+      url: buildFlightBookingUrl(origMeta.name, destMeta.name, `6E-${flightNum1}`, "IndiGo", travelDate),
     });
 
     results.push({
@@ -566,7 +826,46 @@ function generateDynamicTravelOptions(
       price: flightFare2,
       currency: "INR",
       source: "Air India",
-      url: `https://www.airindia.com/flight-details?flight=AI${flightNum2}`,
+      url: buildFlightBookingUrl(origMeta.name, destMeta.name, `AI-${flightNum2}`, "Air India", travelDate),
+    });
+  }
+
+  // 4. CABS / TAXIS (Uber, Ola)
+  if (includeCabs) {
+    const cabDurMins = Math.round((distanceKm / 55) * 60);
+    const uberFare = Math.max(650, Math.round(distanceKm * 14 + 350));
+    const olaFare = Math.max(600, Math.round(distanceKm * 13 + 300));
+
+    results.push({
+      id: `DYN_CAB_UBER_${routeHash}`,
+      type: "cab",
+      name: "Uber Intercity / Go",
+      operator: "Uber",
+      origin: origMeta.name,
+      destination: destMeta.name,
+      departure: "On-demand",
+      arrival: addMinutesToTime("00:00", cabDurMins),
+      duration: formatDuration(cabDurMins),
+      price: uberFare,
+      currency: "INR",
+      source: "Uber",
+      url: buildCabBookingUrl("Uber", origMeta.name, destMeta.name, origMeta, destMeta),
+    });
+
+    results.push({
+      id: `DYN_CAB_OLA_${routeHash}`,
+      type: "cab",
+      name: "Ola Outstation Prime",
+      operator: "Ola",
+      origin: origMeta.name,
+      destination: destMeta.name,
+      departure: "On-demand",
+      arrival: addMinutesToTime("00:00", cabDurMins),
+      duration: formatDuration(cabDurMins),
+      price: olaFare,
+      currency: "INR",
+      source: "Ola",
+      url: buildCabBookingUrl("Ola", origMeta.name, destMeta.name, origMeta, destMeta),
     });
   }
 
@@ -620,7 +919,7 @@ export function searchTravel({
 
   // If static data doesn't have options for this route, dynamically generate authentic options
   if (filtered.length === 0) {
-    filtered = generateDynamicTravelOptions(origin, destination, transport_type);
+    filtered = generateDynamicTravelOptions(origin, destination, transport_type, travel_date);
   }
 
   // Filter by price and departure time if specified
@@ -687,6 +986,31 @@ export function searchTravel({
         item.bus_type,
         travel_date || "tomorrow"
       );
+    } else if (transType === "train") {
+      itemUrl = sanitizeAndVerifyTrainUrl(
+        itemUrl,
+        orig,
+        dest,
+        item.train_number || item.service_id,
+        travel_date || "tomorrow",
+        item.source
+      );
+    } else if (transType === "flight") {
+      itemUrl = sanitizeAndVerifyFlightUrl(
+        itemUrl,
+        orig,
+        dest,
+        item.flight_number || item.service_id,
+        item.source || item.operator,
+        travel_date || "tomorrow"
+      );
+    } else if (transType === "cab") {
+      itemUrl = sanitizeAndVerifyCabUrl(
+        itemUrl,
+        orig,
+        dest,
+        item.source || item.operator
+      );
     }
 
     normalizedResults.push({
@@ -695,7 +1019,7 @@ export function searchTravel({
       description: `${transType.charAt(0).toUpperCase() + transType.slice(1)} from ${orig} to ${dest} (${dep} - ${arr})`,
       price,
       currency: item.currency || "INR",
-      source: item.source || (transType === "bus" ? (item.operator || "Bus Operator") : (transType === "flight" ? (item.operator || "Airlines") : "IRCTC")),
+      source: item.source || (transType === "bus" ? (item.operator || "Bus Operator") : (transType === "flight" ? (item.operator || "Airlines") : (transType === "cab" ? (item.operator || "Cab") : "IRCTC"))),
       url: itemUrl,
       image: null,
       metadata: {
@@ -709,11 +1033,13 @@ export function searchTravel({
         duration_minutes: durationMinutes,
         date: travel_date || "tomorrow",
         operator: item.operator || item.source || name,
+        train_number: item.train_number || null,
+        flight_number: item.flight_number || null,
         bus_type: item.bus_type || null,
         boarding_point: item.boarding_point || null,
         dropping_point: item.dropping_point || null,
         available_seats: item.available_seats != null ? item.available_seats : null,
-        service_id: item.service_id || item.train_number || item.id,
+        service_id: item.service_id || item.train_number || item.flight_number || item.id,
       },
     });
   }

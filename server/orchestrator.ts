@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { ChatResponse, Intent, SearchResult } from "./types.js";
+import { BookingDetails, ChatResponse, DomainResult, Intent, SearchResult } from "./types.js";
 import { extractIntent } from "./intent.js";
 import { memoryManager } from "./memory.js";
 import { searchTravel } from "./tools/travelSearch.js";
@@ -16,11 +16,189 @@ export class CentralOrchestrator {
     // 1. Intent & Entity Extraction
     const rawIntent = extractIntent(message);
 
-    // 2. Merge Multi-turn Context Memory
+    // 2. Handle Booking and Explainability Actions
+    if (rawIntent.intent === "booking_action") {
+      const lastResults = session.getLastResults();
+
+      if (rawIntent.action === "explain") {
+        const topItem = lastResults[0];
+        const naturalMsg = generateNaturalResponse(rawIntent, lastResults);
+        session.addMessage("user", message);
+        session.addMessage("assistant", naturalMsg);
+        return {
+          status: "success",
+          message: naturalMsg,
+          intent: rawIntent,
+          results: lastResults,
+          result_type: "explain",
+          session_id: sid,
+          needs_clarification: false,
+        };
+      }
+
+      if (rawIntent.action === "book") {
+        if (lastResults.length === 0) {
+          const noOptionMsg =
+            rawIntent.language === "ta-en"
+              ? "Book panradhuku munnaadi, travel or product option search pannunga."
+              : rawIntent.language === "hi-en"
+              ? "Book karne se pehle kripya travel ya product option search karein."
+              : "Please search for travel options or products before initiating a booking.";
+
+          session.addMessage("user", message);
+          session.addMessage("assistant", noOptionMsg);
+          return {
+            status: "needs_clarification",
+            message: noOptionMsg,
+            intent: rawIntent,
+            results: [],
+            result_type: "booking",
+            session_id: sid,
+            needs_clarification: true,
+          };
+        }
+
+        const targetIdx = Math.min(rawIntent.target_item_index ?? 0, lastResults.length - 1);
+        const bookedItem = lastResults[targetIdx] || lastResults[0];
+
+        const confirmationMsg = generateNaturalResponse(rawIntent, [bookedItem]);
+        session.addMessage("user", message);
+        session.addMessage("assistant", confirmationMsg);
+
+        return {
+          status: "success",
+          message: confirmationMsg,
+          intent: rawIntent,
+          results: [bookedItem],
+          result_type: bookedItem.type || "travel",
+          session_id: sid,
+          needs_clarification: false,
+        };
+      }
+    }
+
+    // 3. Multi-Domain Execution Pipeline
+    if (rawIntent.intent === "multi_domain_search") {
+      session.addMessage("user", message);
+      const activeDomains = rawIntent.domains || ["travel", "product", "web"];
+      const domainResultsList: DomainResult[] = [];
+      const aggregatedResults: SearchResult[] = [];
+
+      const promises: Promise<any>[] = [];
+
+      // A. Travel search task
+      if (activeDomains.includes("travel") && rawIntent.travel) {
+        promises.push(
+          (async () => {
+            try {
+              const raw = searchTravel({
+                origin: rawIntent.travel!.origin || "Chennai",
+                destination: rawIntent.travel!.destination || "Bengaluru",
+                travel_date: rawIntent.travel!.date,
+                time_preference: rawIntent.travel!.time,
+                max_price: rawIntent.travel!.budget,
+                preference: rawIntent.travel!.preference,
+                transport_type: rawIntent.travel!.transport_type,
+              });
+              const ranked = rankResults(raw, rawIntent.travel!.preference, rawIntent.travel);
+              const topPick = ranked[0];
+              const summary = `${ranked.length} options found (Lowest: ₹${topPick?.price ?? "N/A"})`;
+              domainResultsList.push({
+                domain: "travel",
+                title: `Travel: ${rawIntent.travel!.origin} → ${rawIntent.travel!.destination}`,
+                summary,
+                why_recommended: topPick?.recommendation_reason || "Selected for optimal fare & route",
+                results: ranked.slice(0, 4),
+              });
+              aggregatedResults.push(...ranked.slice(0, 3));
+            } catch (err) {
+              console.error("Multi-domain Travel specialist error:", err);
+            }
+          })()
+        );
+      }
+
+      // B. Product search task
+      if (activeDomains.includes("product") && rawIntent.product) {
+        const prodObj = typeof rawIntent.product === "object" ? rawIntent.product : { product: rawIntent.product };
+        promises.push(
+          (async () => {
+            try {
+              const raw = searchProducts({
+                query: prodObj.product || "power bank",
+                category: prodObj.category,
+                max_price: prodObj.budget,
+                preference: prodObj.preference,
+              });
+              const ranked = rankResults(raw, prodObj.preference);
+              const topPick = ranked[0];
+              const summary = `${ranked.length} picks found (Top: ₹${topPick?.price ?? "N/A"})`;
+              domainResultsList.push({
+                domain: "product",
+                title: `Products: ${prodObj.product || "Recommendations"}`,
+                summary,
+                why_recommended: topPick?.recommendation_reason || "Best rated value under budget",
+                results: ranked.slice(0, 4),
+              });
+              aggregatedResults.push(...ranked.slice(0, 3));
+            } catch (err) {
+              console.error("Multi-domain Product specialist error:", err);
+            }
+          })()
+        );
+      }
+
+      // C. Web search task
+      if (activeDomains.includes("web") && rawIntent.web) {
+        promises.push(
+          (async () => {
+            try {
+              const raw = await searchWeb(rawIntent.web!.query || `Places to visit in ${rawIntent.travel?.destination || "Bangalore"}`);
+              const ranked = rankResults(raw, "rating");
+              domainResultsList.push({
+                domain: "web",
+                title: `Web Insights & Highlights`,
+                summary: `${ranked.length} articles and guides retrieved`,
+                why_recommended: "Verified travel and visitor guide",
+                results: ranked.slice(0, 4),
+              });
+              aggregatedResults.push(...ranked.slice(0, 3));
+            } catch (err) {
+              console.error("Multi-domain Web specialist error:", err);
+            }
+          })()
+        );
+      }
+
+      await Promise.allSettled(promises);
+
+      // Order domains consistently: travel, product, web
+      const order = ["travel", "product", "web"];
+      domainResultsList.sort((a, b) => order.indexOf(a.domain) - order.indexOf(b.domain));
+
+      const naturalResponse = generateNaturalResponse(rawIntent, aggregatedResults, false, null, domainResultsList);
+
+      session.updateIntent(rawIntent);
+      session.updateResults(aggregatedResults, domainResultsList);
+      session.addMessage("assistant", naturalResponse);
+
+      return {
+        status: "success",
+        message: naturalResponse,
+        intent: rawIntent,
+        domains: domainResultsList,
+        results: aggregatedResults,
+        result_type: "multi_domain",
+        session_id: sid,
+        needs_clarification: false,
+      };
+    }
+
+    // 4. Merge Multi-turn Context Memory for Single-domain flows
     const intent = memoryManager.mergeIntentContext(sid, rawIntent, message);
     const intentType = intent.intent || "general_chat";
 
-    // 3. Validate Required Parameters
+    // 5. Validate Required Parameters
     if (intentType === "travel_search") {
       const origin = intent.origin;
       const destination = intent.destination;
@@ -68,7 +246,7 @@ export class CentralOrchestrator {
       }
     }
 
-    // 4. Route and Execute Specialist
+    // 6. Route and Execute Single Specialist
     let results: SearchResult[] = [];
     let resultType: string | null = null;
 
@@ -88,8 +266,9 @@ export class CentralOrchestrator {
         results = rankResults(rawResults, intent.preference, intent);
         resultType = "travel";
       } else if (intentType === "product_search") {
+        const prodQuery = typeof intent.product === "string" ? intent.product : intent.product?.product || intent.query || "products";
         const rawResults = searchProducts({
-          query: intent.product || intent.query,
+          query: prodQuery,
           category: intent.category,
           max_price: intent.budget,
           preference: intent.preference,
@@ -123,11 +302,12 @@ export class CentralOrchestrator {
       };
     }
 
-    // 5. Generate Natural Multilingual Response
+    // 7. Generate Natural Multilingual Response
     const naturalResponse = generateNaturalResponse(intent, results);
 
-    // 6. Save Turn in Memory
+    // 8. Save Turn in Memory
     session.updateIntent(intent);
+    session.updateResults(results);
     session.addMessage("user", message);
     session.addMessage("assistant", naturalResponse);
 
@@ -144,3 +324,4 @@ export class CentralOrchestrator {
 }
 
 export const orchestrator = new CentralOrchestrator();
+

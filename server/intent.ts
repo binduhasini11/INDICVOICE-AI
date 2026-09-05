@@ -22,11 +22,12 @@ export function detectLanguage(text: string): "ta-en" | "hi-en" | "en" {
   const tamilMarkers = [
     "la irundhu", "lendhu", "lerundhu", " ku ", "naalaiku", "naalai", "innaiku",
     "kaalai", "maalai", "raathri", "paathu", "sollu", "venum", "kulla", "kammi-a",
-    "cheap-a", "fast-a", "iruku", "epdi"
+    "cheap-a", "fast-a", "iruku", "epdi", "idha", "pannu", "kudunga", "pannunga"
   ];
   const hindiMarkers = [
     " se ", " tak ", "kal ", " aaj", "subah", "shaam", "raat", "sasta", "sasti",
-    "chahiye", "dikhao", "ke andar", "karo", "kya", "accha", "batao", "mujhe", "mera"
+    "chahiye", "dikhao", "ke andar", "karo", "kya", "accha", "batao", "mujhe", "mera",
+    "isko", "kardo", "kijiye"
   ];
 
   if (tamilMarkers.some((m) => lower.includes(m))) {
@@ -300,7 +301,11 @@ export function extractTransportType(text: string): string | null {
   if (/\b(train|trains|rail|railway|shatabdi|vande\s*bharat|irctc|intercity)\b/i.test(lower)) {
     return "train";
   }
-  // 4. Express keyword as train (only if no bus was mentioned)
+  // 4. Cab / Taxi markers
+  if (/\b(cab|cabs|taxi|taxis|uber|ola)\b/i.test(lower)) {
+    return "cab";
+  }
+  // 5. Express keyword as train (only if no bus was mentioned)
   if (/\bexpress\b/i.test(lower)) {
     return "train";
   }
@@ -332,6 +337,45 @@ export function extractIntent(text: string): Intent {
   const lower = cleanText.toLowerCase();
   const language = detectLanguage(cleanText);
 
+  // 0. Check for Booking and Follow-up Actions
+  const isBooking = /\b(book|reserve|booking)\b/i.test(lower) && !/\b(search|find|show|paathu|dikhao)\b/i.test(lower);
+  const isBookingAction =
+    isBooking ||
+    /\b(confirm\s+booking|book\s+karo|book\s+pannu|ticket\s+book|book\s+this|book\s+it)\b/i.test(lower);
+
+  if (isBookingAction) {
+    let targetIndex = 0;
+    if (/\b(second|2nd|rendavathu|dusra)\b/i.test(lower)) targetIndex = 1;
+    else if (/\b(third|3rd|moonravathu|teesra)\b/i.test(lower)) targetIndex = 2;
+
+    let itemType: "bus" | "train" | "flight" | "cab" | "product" = "bus";
+    if (/\btrain\b/i.test(lower)) itemType = "train";
+    else if (/\bflight\b/i.test(lower)) itemType = "flight";
+    else if (/\b(cab|taxi)\b/i.test(lower)) itemType = "cab";
+    else if (/\b(product|item|headphone|shoes|watch|laptop)\b/i.test(lower)) itemType = "product";
+
+    return {
+      intent: "booking_action",
+      action: "book",
+      target_item_index: targetIndex,
+      item_type: itemType,
+      language,
+      message: cleanText,
+    };
+  }
+
+  // Check for Explainability request: e.g. "Why did you recommend this?" / "Why this option?"
+  if (
+    /\b(why\s+(?:did\s+you\s+)?recommend|why\s+this|yen\s+idha|kyun\s+ye|explain\s+(?:this|recommendation))\b/i.test(lower)
+  ) {
+    return {
+      intent: "booking_action",
+      action: "explain",
+      language,
+      message: cleanText,
+    };
+  }
+
   // Check for general greetings
   if (["hi", "hello", "hey", "vanakkam", "namaste", "good morning", "good evening", "how are you"].includes(lower)) {
     return {
@@ -340,6 +384,137 @@ export function extractIntent(text: string): Intent {
       language,
     };
   }
+
+  // -------------------------------------------------------------
+  // MULTI-DOMAIN DECOMPOSITION DETECTION
+  // Check if the query asks for Travel + Product + Web, or any 2-domain pair.
+  // -------------------------------------------------------------
+  const [citiesOrig, citiesDest] = extractCities(cleanText);
+  const hasCities = Boolean(citiesOrig && citiesDest);
+  const hasTravelMarkers = hasCities || /\b(train|bus|flight|ticket|tickets|journey|from\s+[a-zA-Z]+\s+to\s+[a-zA-Z]+|la\s+irundhu\s+[a-zA-Z]+\s+ku|se\s+[a-zA-Z]+\s+tak)\b/i.test(lower);
+
+  const productRegex = /\b(power\s*bank|headphones?|earphones?|earbuds|smart\s*watch|shoes?|sneakers?|running\s+shoes|laptop|laptops|charger|mobile|phone)\b/i;
+  const hasProduct = productRegex.test(lower) || (/\b(buy|purchase|order)\b/i.test(lower) && !hasTravelMarkers);
+
+  const webRegex = /\b(places\s+to\s+visit|tourist\s+(?:places|spots)|things\s+to\s+do|what\s+are\s+the\s+best\s+places|sightseeing|good\s+for\s+coding|which\s+laptops\s+are\s+good|latest\s+news|what\s+happened|who\s+is|weather\s+in|enna\s+places\s+visit\s+panna\s+mudiyum|best\s+places)\b/i;
+  const hasWeb = webRegex.test(lower) || (cleanText.includes("?") && (hasTravelMarkers || hasProduct));
+
+  // Count active domains
+  const activeDomains: ("travel" | "product" | "web")[] = [];
+  if (hasTravelMarkers) activeDomains.push("travel");
+  if (hasProduct) activeDomains.push("product");
+  if (hasWeb) activeDomains.push("web");
+
+  if (activeDomains.length >= 2) {
+    // We have a multi-domain query!
+    const result: Intent = {
+      intent: "multi_domain_search",
+      domains: activeDomains,
+      language,
+      message: cleanText,
+    };
+
+    // 1. Decompose Travel Sub-Intent
+    if (activeDomains.includes("travel")) {
+      const travelTransport = extractTransportType(cleanText);
+      const [travelDate, travelTime] = extractDateAndTime(cleanText);
+      const travelPref = extractPreference(cleanText);
+
+      // Extract travel-specific budget (e.g. "bus under 1000")
+      let travelBudget: number | null = null;
+      const travelBudgetMatch = lower.match(/(?:bus|train|flight|ticket)[^,.]*?(?:under|kulla|below|less\s+than|budget)\s*(?:rs\.?|inr|₹)?\s*(\d+)/i) ||
+                                lower.match(/(?:under|kulla|below)\s*(?:rs\.?|inr|₹)?\s*(\d+)[^,.]*?(?:bus|train|flight|ticket)/i);
+      if (travelBudgetMatch) {
+        travelBudget = parseFloat(travelBudgetMatch[1]);
+      }
+
+      result.travel = {
+        origin: citiesOrig || "Chennai",
+        destination: citiesDest || "Bengaluru",
+        transport_type: travelTransport || (lower.includes("bus") ? "bus" : lower.includes("train") ? "train" : null),
+        date: travelDate || "tomorrow",
+        time: travelTime,
+        preference: travelPref || (lower.includes("cheap") || lower.includes("sasta") ? "cheapest" : null),
+        budget: travelBudget,
+      };
+
+      // Set top-level legacy travel fields for backward compatibility
+      result.origin = result.travel.origin;
+      result.destination = result.travel.destination;
+      result.transport_type = result.travel.transport_type;
+      result.date = result.travel.date;
+    }
+
+    // 2. Decompose Product Sub-Intent
+    if (activeDomains.includes("product")) {
+      let prodName = "power bank";
+      const pMatch = lower.match(productRegex);
+      if (pMatch) {
+        prodName = pMatch[0];
+      }
+
+      // Extract product-specific budget (e.g. "power bank 1500 kulla" or "laptop under 50000")
+      let prodBudget: number | null = null;
+      const prodBudgetMatch =
+        lower.match(/(?:power\s*bank|headphones?|laptop|smart\s*watch|shoes?)[^,.]*?(?:under|kulla|below|ke\s+andar|less\s+than)\s*(?:rs\.?|inr|₹)?\s*(\d+)/i) ||
+        lower.match(/(?:under|kulla|below|ke\s+andar)\s*(?:rs\.?|inr|₹)?\s*(\d+)[^,.]*?(?:power\s*bank|headphones?|laptop|smart\s*watch|shoes?)/i) ||
+        lower.match(/(\d+)\s*(?:kulla|ke\s+andar|rupees|rs)\b[^,.]*?(?:power\s*bank|headphones?|laptop|smart\s*watch|shoes?)/i) ||
+        lower.match(/(?:power\s*bank|headphones?|laptop|smart\s*watch|shoes?)[^,.]*?(\d+)\s*(?:kulla|ke\s+andar)/i);
+
+      if (prodBudgetMatch) {
+        prodBudget = parseFloat(prodBudgetMatch[1]);
+      } else {
+        // General budget fallback if not captured by travel
+        const genBudget = extractBudget(cleanText);
+        if (genBudget && (!result.travel || result.travel.budget !== genBudget)) {
+          prodBudget = genBudget;
+        }
+      }
+
+      result.product = {
+        product: prodName,
+        category: ["shoes", "sneakers"].includes(prodName) ? "fashion" : "electronics",
+        budget: prodBudget,
+        preference: lower.includes("cheap") || lower.includes("sasta") ? "cheapest" : null,
+      };
+      result.product_name = prodName;
+    }
+
+    // 3. Decompose Web Sub-Intent
+    if (activeDomains.includes("web")) {
+      let webQuery = "";
+      const destCity = result.travel?.destination || "Bangalore";
+
+      if (/places\s+to\s+visit|tourist|things\s+to\s+do|enna\s+places\s+visit/i.test(lower)) {
+        webQuery = `Best places to visit in ${destCity}`;
+      } else if (/which\s+laptops\s+are\s+good\s+for\s+coding/i.test(lower) || /good\s+for\s+coding/i.test(lower)) {
+        webQuery = "Best laptops for coding and programming in India";
+      } else {
+        // Extract the web portion
+        const parts = cleanText.split(/[,;&]|\band\b|\baprom\b|\baur\b/i);
+        const webPart = parts.find((p) => webRegex.test(p) || p.includes("?"));
+        if (webPart) {
+          webQuery = webPart.trim().replace(/^and\s+/i, "");
+          if (webQuery.toLowerCase().includes("there") && destCity) {
+            webQuery = webQuery.replace(/there/gi, `in ${destCity}`);
+          }
+        } else {
+          webQuery = `Latest information and tourist guide for ${destCity}`;
+        }
+      }
+
+      result.web = {
+        query: webQuery,
+      };
+      result.query = webQuery;
+    }
+
+    return result;
+  }
+
+  // -------------------------------------------------------------
+  // SINGLE DOMAIN DETECTION (Legacy / Fallback flows)
+  // -------------------------------------------------------------
 
   // 1. Travel Search Detection
   const [origin, destination] = extractCities(cleanText);
@@ -351,7 +526,7 @@ export function extractIntent(text: string): Intent {
   const pref = extractPreference(cleanText);
 
   const isTravelKeywords = [
-    "train", "trains", "flight", "flights", "bus", "buses",
+    "train", "trains", "flight", "flights", "bus", "buses", "cab", "cabs", "taxi", "taxis", "uber", "ola",
     "ticket", "tickets", "travel", "journey", "trip",
     "la irundhu", "lendhu", "lerundhu", " se ", "naalaiku", "kal subah"
   ].some((w) => lower.includes(w));
@@ -369,7 +544,7 @@ export function extractIntent(text: string): Intent {
       date,
       time: timePref,
       preference: pref,
-      transport_type: transport || "train",
+      transport_type: transport || null,
       budget,
       language,
       requested_departure_time: timeDetails.requestedDepartureTime,
@@ -380,24 +555,40 @@ export function extractIntent(text: string): Intent {
   // 2. Product Search Detection
   const productKeywords = [
     "buy", "purchase", "headphones", "headphone", "earbuds", "earphones",
-    "shoes", "smartwatch", "watch", "mobile", "phone", "laptop", "sneakers"
+    "shoes", "smartwatch", "watch", "mobile", "phone", "laptop", "sneakers",
+    "air max", "nike", "adidas", "puma", "boat", "sony", "apple", "iphone",
+    "samsung", "oneplus", "gadget", "t-shirt", "shirt", "jeans", "power bank"
   ];
+  const hasProductKeyword = productKeywords.some((k) => lower.includes(k));
+  const isFindProduct = /^(?:find|search|show\s+me|get|order|shop|looking\s+for)\b/i.test(lower) && !isTravelKeywords && !origin && !destination;
+
   const isProductIntent =
-    productKeywords.some((k) => lower.includes(k)) ||
+    hasProductKeyword ||
+    isFindProduct ||
     (lower.includes("chahiye") && ["ek", "accha", "under", "ke andar"].some((w) => lower.includes(w))) ||
     (lower.includes("dikhao") && budget !== null) ||
-    (lower.includes("under") && ["shoes", "watch", "phone", "headphones"].some((p) => lower.includes(p)));
+    (lower.includes("under") && ["shoes", "watch", "phone", "headphones", "sneakers", "laptop"].some((p) => lower.includes(p)));
 
   if (isProductIntent) {
-    let productName = cleanText;
-    for (const kw of ["headphones", "headphone", "earbuds", "running shoes", "shoes", "smart watch", "watch", "phone", "laptop"]) {
-      if (lower.includes(kw)) {
-        productName = kw;
-        break;
+    let productName = cleanText
+      .replace(/^(?:find\s+me|find|search\s+for|search|show\s+me|buy\s+me|buy|purchase|get\s+me|get|order|tell\s+me\s+price\s+of|shop\s+for|view)\s+/i, "")
+      .replace(/\b(?:under|ke\s+andar|below|budget|less\s+than)\s+(?:rs\.?|inr|₹)?\s*\d+\b/gi, "")
+      .replace(/\b(?:cheap-?a?|sasta|sasti|accha|best|good|chahiye|paathu\s+sollu|dikhao|batao|karo)\b/gi, "")
+      .trim();
+
+    if (!productName) {
+      for (const kw of ["power bank", "headphones", "headphone", "earbuds", "running shoes", "shoes", "smart watch", "watch", "phone", "laptop"]) {
+        if (lower.includes(kw)) {
+          productName = kw;
+          break;
+        }
       }
     }
+    if (!productName) {
+      productName = cleanText;
+    }
 
-    const isElectronics = ["headphones", "watch", "phone", "laptop", "earbuds"].some((e) => lower.includes(e));
+    const isElectronics = ["power bank", "headphones", "headphone", "watch", "smartwatch", "phone", "mobile", "laptop", "earbuds", "earphones", "apple", "iphone", "samsung", "oneplus", "sony", "boat"].some((e) => lower.includes(e));
     return {
       intent: "product_search",
       product: productName,
@@ -411,7 +602,7 @@ export function extractIntent(text: string): Intent {
   // 3. Web Search Detection
   const webKeywords = [
     "search", "latest", "news", "what happened", "who is", "isro", "weather",
-    "today", "information", "tell me about", "update", "updates", "karo"
+    "today", "information", "tell me about", "update", "updates", "karo", "places to visit", "things to do"
   ];
   const isWeb = webKeywords.some((k) => lower.includes(k)) || cleanText.endsWith("?");
 
