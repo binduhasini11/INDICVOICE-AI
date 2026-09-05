@@ -12,7 +12,7 @@ const upload = multer({
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Enable CORS for all incoming origins and headers
   app.use((req: Request, res: Response, next) => {
@@ -190,7 +190,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`IndicVoice AI server running on http://0.0.0.0:${PORT}`);
+    console.log(`IndicVoice AI server running on port ${PORT}`);
   });
 }
 
