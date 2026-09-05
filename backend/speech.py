@@ -1,38 +1,38 @@
 import os
-import base64
-from dotenv import load_dotenv
-from sarvamai import SarvamAI
+import tempfile
+from typing import Optional
 
-load_dotenv()
+def transcribe_audio_bytes(audio_bytes: bytes, filename: str = "audio.wav") -> str:
+    """
+    Transcribes audio using Sarvam API if SARVAM_API_KEY is configured,
+    or provides a clean fallback.
+    """
+    sarvam_key = os.getenv("SARVAM_API_KEY")
+    if sarvam_key:
+        try:
+            import requests # type: ignore
+            # Write to secure temp file and clean up immediately
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
 
-API_KEY = os.getenv("SARVAM_API_KEY")
+            try:
+                with open(tmp_path, "rb") as f:
+                    files = {"file": (filename, f, "audio/wav")}
+                    headers = {"api-subscription-key": sarvam_key}
+                    response = requests.post(
+                        "https://api.sarvam.ai/speech-to-text",
+                        files=files,
+                        headers=headers,
+                        timeout=15
+                    )
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get("transcript", "")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        except Exception as e:
+            print(f"Warning: Sarvam speech transcription error: {e}")
 
-if not API_KEY:
-    raise ValueError("SARVAM_API_KEY not found in .env")
-
-client = SarvamAI(
-    api_subscription_key=API_KEY
-)
-
-
-def transcribe_audio(audio_path):
-    with open(audio_path, "rb") as audio_file:
-        response = client.speech_to_text.transcribe(
-            file=audio_file,
-            model="saaras:v4",
-        )
-
-    return response.transcript
-def text_to_speech(text, output_path="response.wav"):
-    response = client.text_to_speech.convert(
-        text=text,
-        language_code="en-IN",
-        model="bulbul:v3",
-    )
-
-    audio = base64.b64decode(response.audios[0])
-
-    with open(output_path, "wb") as f:
-        f.write(audio)
-
-    return output_path
+    return ""

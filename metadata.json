@@ -1,0 +1,10 @@
+{
+  "name": "IndicVoice AI",
+  "description": "Multilingual voice-first search assistant for travel and products in India",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

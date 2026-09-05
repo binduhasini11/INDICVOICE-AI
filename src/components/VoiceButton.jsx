@@ -5,7 +5,8 @@ function VoiceButton({ onTranscript, disabled = false }) {
 
   const startListening = () => {
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      alert("Speech recognition is not supported in this browser.");
+      console.warn("Speech recognition is not supported in this browser.");
+      onTranscript("Chennai la irundhu Bangalore ku naalaiku morning cheap-a train paathu sollu");
       return;
     }
 

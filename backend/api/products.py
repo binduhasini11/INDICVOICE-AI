@@ -1,43 +1,25 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from backend.tools.product_search import search_products
 
-from backend.services.search_service import execute_search
+router = APIRouter(prefix="/products", tags=["Products"])
 
-
-router = APIRouter(
-    prefix="/products",
-    tags=["Products"]
-)
-
-
-class ProductRequest(BaseModel):
+class ProductSearchRequest(BaseModel):
     query: str
     category: Optional[str] = None
     max_price: Optional[float] = None
     preference: Optional[str] = None
 
-
 @router.post("/search")
-def product_search(request: ProductRequest):
-
-    intent = {
-        "intent": "product_search",
-        "query": request.query,
-        "category": request.category,
-        "max_price": request.max_price,
-        "preference": request.preference
+async def product_search_endpoint(req: ProductSearchRequest) -> Dict[str, Any]:
+    results = search_products(
+        query=req.query,
+        category=req.category,
+        max_price=req.max_price,
+        preference=req.preference,
+    )
+    return {
+        "type": "product",
+        "results": results
     }
-
-    try:
-
-        result = execute_search(intent)
-
-        return result
-
-    except Exception as error:
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(error)
-        )

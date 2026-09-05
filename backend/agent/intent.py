@@ -1,759 +1,232 @@
 import re
-from typing import Optional
+import os
+import json
+from typing import Dict, Any, Optional, Tuple
 
-from pydantic import BaseModel
-
-
-# ============================================================
-# INTENT RESULT
-# ============================================================
-
-class IntentResult(BaseModel):
-    intent: str
-
-    # Travel fields
-    origin: Optional[str] = None
-    destination: Optional[str] = None
-    date: Optional[str] = None
-    time: Optional[str] = None
-    preference: Optional[str] = None
-    transport_type: Optional[str] = None
-    budget: Optional[float] = None
-
-    # Product fields
-    product: Optional[str] = None
-
-    # Web search fields
-    query: Optional[str] = None
-
-    # Language
-    language: Optional[str] = None
-
-
-# ============================================================
-# SUPPORTED CITIES
-# ============================================================
-
-CITIES = [
-    "Chennai",
-    "Bangalore",
-    "Bengaluru",
-    "Mumbai",
-    "Delhi",
-    "Hyderabad",
-    "Kolkata",
-    "Pune",
-    "Coimbatore",
-    "Madurai",
-    "Salem",
-    "Trichy",
-    "Tiruchirappalli",
-    "Kochi",
-    "Mysore",
-    "Mysuru",
-    "Ahmedabad",
-    "Jaipur",
+KNOWN_CITIES = [
+    "Bengaluru", "Bangalore", "Chennai", "Mumbai", "Delhi", "New Delhi",
+    "Hyderabad", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Coimbatore",
+    "Madurai", "Salem", "Trichy", "Tiruchirappalli", "Kochi", "Cochin",
+    "Mysore", "Mysuru", "Goa", "Chandigarh", "Lucknow", "Varanasi", "Patna"
 ]
 
-
-# ============================================================
-# CITY DETECTION
-# ============================================================
-
-def find_city(text: str, city: str):
-    """
-    Find a city name inside the user's message.
-    """
-
-    pattern = r"\b" + re.escape(city) + r"\b"
-
-    match = re.search(
-        pattern,
-        text,
-        re.IGNORECASE
-    )
-
-    if match:
-        return match.group()
-
-    return None
-
-
-def extract_origin_destination(text: str):
-    """
-    Extract origin and destination from different
-    ways users may express travel.
-
-    Examples:
-        Chennai to Bangalore
-        from Chennai to Bangalore
-        Chennai la irundhu Bangalore ku
-        Chennai se Bangalore
-    """
-
-    origin = None
-    destination = None
-
-    # --------------------------------------------------------
-    # Pattern 1:
-    # "from Chennai to Bangalore"
-    # --------------------------------------------------------
-
-    match = re.search(
-        r"\bfrom\s+([A-Za-z]+)\s+to\s+([A-Za-z]+)",
-        text,
-        re.IGNORECASE
-    )
-
-    if match:
-        origin = match.group(1)
-        destination = match.group(2)
-
-        return origin, destination
-
-    # --------------------------------------------------------
-    # Pattern 2:
-    # "Chennai to Bangalore"
-    # --------------------------------------------------------
-
-    match = re.search(
-        r"\b([A-Za-z]+)\s+to\s+([A-Za-z]+)",
-        text,
-        re.IGNORECASE
-    )
-
-    if match:
-        first = match.group(1)
-        second = match.group(2)
-
-        # Make sure they are known cities
-        first_city = find_city(text, first)
-        second_city = find_city(text, second)
-
-        if first_city and second_city:
-            origin = first_city
-            destination = second_city
-
-            return origin, destination
-
-    # --------------------------------------------------------
-    # Pattern 3:
-    # Tamil-English:
-    # "Chennai la irundhu Bangalore ku"
-    # --------------------------------------------------------
-
-    match = re.search(
-        r"\b([A-Za-z]+)\s+la\s+irundhu\s+([A-Za-z]+)\s+ku\b",
-        text,
-        re.IGNORECASE
-    )
-
-    if match:
-        origin = match.group(1)
-        destination = match.group(2)
-
-        return origin, destination
-
-    # --------------------------------------------------------
-    # Pattern 4:
-    # Hindi-English:
-    # "Chennai se Bangalore"
-    # --------------------------------------------------------
-
-    match = re.search(
-        r"\b([A-Za-z]+)\s+se\s+([A-Za-z]+)",
-        text,
-        re.IGNORECASE
-    )
-
-    if match:
-        origin = match.group(1)
-        destination = match.group(2)
-
-        return origin, destination
-
-    # --------------------------------------------------------
-    # Pattern 5:
-    # Find two known cities anywhere in the sentence
-    # --------------------------------------------------------
-
-    found_cities = []
-
-    for city in CITIES:
-
-        found = find_city(text, city)
-
-        if found:
-            found_cities.append(found)
-
-    # Remove duplicates while preserving order
-    unique_cities = []
-
-    for city in found_cities:
-
-        if city.lower() not in [
-            c.lower() for c in unique_cities
-        ]:
-            unique_cities.append(city)
-
-    if len(unique_cities) >= 2:
-
-        origin = unique_cities[0]
-        destination = unique_cities[1]
-
-    return origin, destination
-
-
-# ============================================================
-# DATE EXTRACTION
-# ============================================================
-
-def extract_date(text: str):
-    """
-    Extract relative travel dates.
-
-    Examples:
-        today
-        tomorrow
-        naalai
-        naalaiku
-        aaj
-        kal
-    """
-
-    text_lower = text.lower()
-
-    # Tomorrow
-    if (
-        "tomorrow" in text_lower
-        or "naalaiku" in text_lower
-        or "naalai" in text_lower
-        or "kal" in text_lower
-    ):
-        return "tomorrow"
-
-    # Today
-    if (
-        "today" in text_lower
-        or "innaiku" in text_lower
-        or "aaj" in text_lower
-    ):
-        return "today"
-
-    return None
-
-
-# ============================================================
-# TIME EXTRACTION
-# ============================================================
-
-def extract_time(text: str):
-    """
-    Extract travel time preference.
-
-    Returns:
-        morning
-        afternoon
-        evening
-        night
-    """
-
-    text_lower = text.lower()
-
-    # Morning
-    if (
-        "morning" in text_lower
-        or "morning-a" in text_lower
-        or "morning la" in text_lower
-        or "subah" in text_lower
-        or "kaalai" in text_lower
-    ):
-        return "morning"
-
-    # Afternoon
-    if (
-        "afternoon" in text_lower
-        or "afternoon-a" in text_lower
-        or "afternoon la" in text_lower
-    ):
-        return "afternoon"
-
-    # Evening
-    if (
-        "evening" in text_lower
-        or "evening-a" in text_lower
-        or "maalai" in text_lower
-        or "shaam" in text_lower
-    ):
-        return "evening"
-
-    # Night
-    if (
-        "night" in text_lower
-        or "raathri" in text_lower
-        or "raat" in text_lower
-    ):
-        return "night"
-
-    return None
-
-
-# ============================================================
-# PREFERENCE EXTRACTION
-# ============================================================
-
-def extract_preference(text: str):
-    """
-    Extract ranking preference.
-
-    cheapest:
-        cheap
-        cheapest
-        cheap-a
-        low price
-        budget
-
-    fastest:
-        fast
-        fastest
-        quick
-        earliest
-        jaldi
-    """
-
-    text_lower = text.lower()
-
-    # --------------------------------------------------------
-    # Cheapest
-    # --------------------------------------------------------
-
-    cheap_words = [
-        "cheap",
-        "cheapest",
-        "cheap-a",
-        "low price",
-        "lowest price",
-        "kam price",
-        "sasti",
-        "sasta",
-        "budget",
-        "affordable",
+def detect_language(text: str) -> str:
+    """Detect natural Indic code-switched dialect or English."""
+    lower = text.lower()
+    tamil_markers = [
+        "la irundhu", "lendhu", "lerundhu", " ku ", "naalaiku", "naalai", "innaiku",
+        "kaalai", "maalai", "raathri", "paathu", "sollu", "venum", "kulla", "kammi-a",
+        "cheap-a", "fast-a", "iruku", "epdi"
+    ]
+    hindi_markers = [
+        " se ", " tak ", "kal ", " aaj", "subah", "shaam", "raat", "sasta", "sasti",
+        "chahiye", "dikhao", "ke andar", "karo", "kya", "accha", "batao", "mujhe", "mera"
     ]
 
-    for word in cheap_words:
-
-        if word in text_lower:
-            return "cheapest"
-
-    # --------------------------------------------------------
-    # Fastest
-    # --------------------------------------------------------
-
-    fast_words = [
-        "fast",
-        "fastest",
-        "quick",
-        "quickest",
-        "earliest",
-        "jaldi",
-    ]
-
-    for word in fast_words:
-
-        if word in text_lower:
-            return "fastest"
-
-    return None
-
-
-# ============================================================
-# TRANSPORT TYPE EXTRACTION
-# ============================================================
-
-def extract_transport_type(text: str):
-    """
-    Identify the preferred transport type.
-
-    Returns:
-        train
-        bus
-        flight
-        None
-    """
-
-    text_lower = text.lower()
-
-    # Train
-    train_words = [
-        "train",
-        "trains",
-        "rail",
-        "railway",
-        "railway train",
-    ]
-
-    for word in train_words:
-
-        if word in text_lower:
-            return "train"
-
-    # Bus
-    bus_words = [
-        "bus",
-        "buses",
-    ]
-
-    for word in bus_words:
-
-        if word in text_lower:
-            return "bus"
-
-    # Flight
-    flight_words = [
-        "flight",
-        "flights",
-        "plane",
-        "airplane",
-        "airways",
-    ]
-
-    for word in flight_words:
-
-        if word in text_lower:
-            return "flight"
-
-    return None
-
-
-# ============================================================
-# BUDGET EXTRACTION
-# ============================================================
-
-def extract_budget(text: str):
-    """
-    Extract maximum budget.
-
-    Examples:
-        under 500
-        below 500
-        budget 500
-        under ₹500
-        below Rs 500
-        ₹500
-    """
-
-    patterns = [
-
-        r"(?:under|below|within|budget)\s*"
-        r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)",
-
-        r"(?:₹|rs\.?|inr)\s*(\d+(?:\.\d+)?)",
-
-    ]
-
-    for pattern in patterns:
-
-        match = re.search(
-            pattern,
-            text,
-            re.IGNORECASE
-        )
-
-        if match:
-
-            return float(
-                match.group(1)
-            )
-
-    return None
-
-
-# ============================================================
-# LANGUAGE DETECTION
-# ============================================================
-
-def detect_language(text: str):
-    """
-    Simple detection for:
-        English
-        Tamil-English
-        Hindi-English
-    """
-
-    text_lower = text.lower()
-
-    tamil_words = [
-        "la",
-        "irundhu",
-        "ku",
-        "naalaiku",
-        "naalai",
-        "paathu",
-        "sollu",
-        "venum",
-        "enna",
-        "cheap-a",
-        "morning-a",
-        "kaalai",
-        "maalai",
-    ]
-
-    hindi_words = [
-        "se",
-        "kal",
-        "aaj",
-        "mujhe",
-        "chahiye",
-        "sasti",
-        "sasta",
-        "batao",
-        "subah",
-        "shaam",
-        "jaldi",
-    ]
-
-    tamil_count = sum(
-        word in text_lower
-        for word in tamil_words
-    )
-
-    hindi_count = sum(
-        word in text_lower
-        for word in hindi_words
-    )
-
-    if tamil_count > hindi_count and tamil_count > 0:
+    if any(m in lower for m in tamil_markers):
         return "ta-en"
-
-    if hindi_count > tamil_count and hindi_count > 0:
+    if any(m in lower for m in hindi_markers):
         return "hi-en"
-
     return "en"
 
-
-# ============================================================
-# MAIN INTENT EXTRACTION
-# ============================================================
-
-def extract_intent(user_text: str) -> IntentResult:
-
-    text = user_text.strip()
-
-    text_lower = text.lower()
-
-    language = detect_language(text)
-
-    # ========================================================
-    # FIRST: TRY TO DETECT TRAVEL ROUTE
-    # ========================================================
-
-    origin, destination = extract_origin_destination(text)
-
-    # If two cities are found, strongly consider this travel
-    is_route = (
-        origin is not None
-        and destination is not None
-    )
-
-    # ========================================================
-    # TRAVEL KEYWORDS
-    # ========================================================
-
-    travel_words = [
-        "train",
-        "trains",
-        "bus",
-        "buses",
-        "flight",
-        "flights",
-        "plane",
-        "travel",
-        "ticket",
-        "tickets",
-        "journey",
-        "travelling",
-        "traveling",
-
-        "from",
-        "to",
-
-        "irundhu",
-        "la irundhu",
-        "ku",
-
-        "se",
-
-        "tomorrow",
-        "today",
-        "naalaiku",
-        "naalai",
-        "innaiku",
-        "aaj",
-        "kal",
-
-        "morning",
-        "morning-a",
-        "afternoon",
-        "evening",
-        "evening-a",
-        "night",
-
-        "subah",
-        "kaalai",
-        "maalai",
-        "shaam",
-        "raathri",
-        "raat",
-
-        "cheap",
-        "cheapest",
-        "cheap-a",
-        "low price",
-        "lowest price",
-
-        "sasti",
-        "sasta",
-        "kam price",
-
-        "fast",
-        "fastest",
-        "quick",
-        "quickest",
-        "earliest",
-        "jaldi",
+def extract_budget(text: str) -> Optional[float]:
+    """Extract budget amount from phrases like 'under 2000', '5000 ke andar', '2000 kulla', 'rs 500'."""
+    lower = text.lower()
+    patterns = [
+        r'(?:under|below|within|budget|less\s+than|upto|up\s+to|max)\s*(?:rs\.?|inr|₹)?\s*(\d+(?:,\d+)?(?:\.\d+)?)',
+        r'(?:rs\.?|inr|₹)\s*(\d+(?:,\d+)?(?:\.\d+)?)',
+        r'(\d+(?:,\d+)?(?:\.\d+)?)\s*(?:ke\s+andar|kulla|kulle|rupees|rs|inr|₹)',
     ]
+    for pattern in patterns:
+        m = re.search(pattern, lower)
+        if m:
+            val_str = m.group(1).replace(",", "")
+            try:
+                return float(val_str)
+            except ValueError:
+                pass
+    return None
 
-    is_travel_keyword = any(
-        word in text_lower
-        for word in travel_words
+def extract_cities(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract origin and destination with multilingual Indic pattern support."""
+    NON_CITIES = {"train", "trains", "bus", "buses", "flight", "flights", "plane", "ticket", "tickets", "chahiye", "venum", "options", "cheap", "sasta", "travel"}
+
+    # Pattern 1: Tamil "Chennai la irundhu Bangalore ku"
+    m_ta = re.search(r'\b([a-zA-Z]+)\s+(?:la\s+irundhu|lerundhu|lendhu)\s+([a-zA-Z]+)\s+ku\b', text, re.IGNORECASE)
+    if m_ta:
+        c1, c2 = m_ta.group(1).capitalize(), m_ta.group(2).capitalize()
+        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+
+    # Pattern 2: Hindi "Delhi se Mumbai"
+    m_hi = re.search(r'\b([a-zA-Z]+)\s+se\s+([a-zA-Z]+)(?:\s+tak|\s+ke\s+liye)?\b', text, re.IGNORECASE)
+    if m_hi:
+        c1, c2 = m_hi.group(1).capitalize(), m_hi.group(2).capitalize()
+        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+
+    # Pattern 3: English "from Chennai to Bangalore"
+    m_en = re.search(r'\bfrom\s+([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
+    if m_en:
+        c1, c2 = m_en.group(1).capitalize(), m_en.group(2).capitalize()
+        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+
+    # Pattern 4: "Chennai to Bangalore"
+    m_to = re.search(r'\b([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
+    if m_to:
+        c1 = next((c for c in KNOWN_CITIES if c.lower() == m_to.group(1).lower()), m_to.group(1).capitalize())
+        c2 = next((c for c in KNOWN_CITIES if c.lower() == m_to.group(2).lower()), m_to.group(2).capitalize())
+        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+
+    # Pattern 5: Look for two known cities
+    found = []
+    for c in KNOWN_CITIES:
+        if re.search(rf'\b{c}\b', text, re.IGNORECASE):
+            # preserve appearance order
+            pos = text.lower().find(c.lower())
+            if not any(fc[0].lower() == c.lower() for fc in found):
+                found.append((c, pos))
+    found.sort(key=lambda x: x[1])
+    if len(found) >= 2:
+        return found[0][0], found[1][0]
+    elif len(found) == 1:
+        # Check if origin or destination
+        lower = text.lower()
+        if "to " + found[0][0].lower() in lower or found[0][0].lower() + " ku" in lower:
+            return None, found[0][0]
+        if "from " + found[0][0].lower() in lower or found[0][0].lower() + " la irundhu" in lower or found[0][0].lower() + " se" in lower:
+            return found[0][0], None
+        return found[0][0], None
+
+    return None, None
+
+def extract_date_and_time(text: str) -> Tuple[Optional[str], Optional[str]]:
+    lower = text.lower()
+    date = None
+    time = None
+
+    if any(k in lower for k in ["tomorrow", "naalaiku", "naalai", "kal"]):
+        date = "tomorrow"
+    elif any(k in lower for k in ["today", "innaiku", "indru", "aaj"]):
+        date = "today"
+
+    if any(k in lower for k in ["morning", "kaalai", "subah"]):
+        time = "morning"
+    elif any(k in lower for k in ["afternoon", "madhiyam", "dopahar"]):
+        time = "afternoon"
+    elif any(k in lower for k in ["evening", "maalai", "shaam"]):
+        time = "evening"
+    elif any(k in lower for k in ["night", "raathri", "raat"]):
+        time = "night"
+
+    return date, time
+
+def extract_transport_type(text: str) -> Optional[str]:
+    lower = text.lower()
+    if any(w in lower for w in ["train", "rail", "railway", "trains", "shatabdi", "vande bharat", "express"]):
+        return "train"
+    if any(w in lower for w in ["bus", "buses", "ksrtc", "setc"]):
+        return "bus"
+    if any(w in lower for w in ["flight", "flights", "plane", "airplane", "air"]):
+        return "flight"
+    return None
+
+def extract_preference(text: str) -> Optional[str]:
+    lower = text.lower()
+    if any(w in lower for w in ["cheap", "cheapest", "kammi-a", "sasta", "sasti", "low price", "lowest price", "budget"]):
+        return "cheapest"
+    if any(w in lower for w in ["fast", "fastest", "quick", "earliest", "jaldi", "fast-a", "early"]):
+        return "fastest"
+    if any(w in lower for w in ["best", "top rated", "accha", "rating", "top-rated"]):
+        return "rating"
+    if any(w in lower for w in ["wireless", "bluetooth", "cordless"]):
+        return "wireless"
+    return None
+
+def extract_intent(text: str) -> Dict[str, Any]:
+    """
+    Unified intent and entity extraction for travel, product, web, and general chat.
+    Supports English, Tamil-English (ta-en), Hindi-English (hi-en).
+    """
+    clean_text = text.strip()
+    lower = clean_text.lower()
+    language = detect_language(clean_text)
+
+    # Check for general greetings
+    if lower in ["hi", "hello", "hey", "vanakkam", "namaste", "good morning", "good evening", "how are you"]:
+        return {
+            "intent": "general_chat",
+            "message": clean_text,
+            "language": language,
+        }
+
+    # 1. Travel Search Detection
+    origin, destination = extract_cities(clean_text)
+    transport = extract_transport_type(clean_text)
+    date, time_pref = extract_date_and_time(clean_text)
+    budget = extract_budget(clean_text)
+    pref = extract_preference(clean_text)
+
+    is_travel_keywords = any(w in lower for w in [
+        "train", "trains", "flight", "flights", "bus", "buses",
+        "ticket", "tickets", "travel", "journey", "trip",
+        "la irundhu", "lendhu", "lerundhu", " se ", "naalaiku", "kal subah"
+    ])
+
+    if (origin and destination) or (origin and is_travel_keywords) or (destination and is_travel_keywords) or (transport and (origin or destination or is_travel_keywords)):
+        return {
+            "intent": "travel_search",
+            "origin": origin,
+            "destination": destination,
+            "date": date,
+            "time": time_pref,
+            "preference": pref,
+            "transport_type": transport or "train",
+            "budget": budget,
+            "language": language,
+        }
+
+    # 2. Product Search Detection
+    product_keywords = ["buy", "purchase", "headphones", "headphone", "earbuds", "earphones",
+                        "shoes", "smartwatch", "watch", "mobile", "phone", "laptop", "sneakers"]
+    is_product_intent = (
+        any(k in lower for k in product_keywords) or
+        ("chahiye" in lower and any(w in lower for w in ["ek", "accha", "under", "ke andar"])) or
+        ("dikhao" in lower and budget is not None) or
+        ("under" in lower and any(p in lower for p in ["shoes", "watch", "phone", "headphones"]))
     )
 
-    # Route detection gets priority
-    if is_route or is_travel_keyword:
+    if is_product_intent:
+        # identify specific product item
+        product_name = clean_text
+        for kw in ["headphones", "headphone", "earbuds", "running shoes", "shoes", "smart watch", "watch", "phone", "laptop"]:
+            if kw in lower:
+                product_name = kw
+                break
 
-        return IntentResult(
-            intent="travel_search",
+        return {
+            "intent": "product_search",
+            "product": product_name,
+            "category": "electronics" if any(e in lower for e in ["headphones", "watch", "phone", "laptop", "earbuds"]) else "fashion",
+            "budget": budget,
+            "preference": pref,
+            "language": language,
+        }
 
-            origin=origin,
-            destination=destination,
-
-            date=extract_date(text),
-            time=extract_time(text),
-
-            preference=extract_preference(text),
-
-            transport_type=extract_transport_type(text),
-
-            budget=extract_budget(text),
-
-            language=language,
-        )
-
-    # ========================================================
-    # PRODUCT SEARCH
-    # ========================================================
-
-    product_words = [
-        "buy",
-        "purchase",
-        "product",
-        "laptop",
-        "phone",
-        "mobile",
-        "headphones",
-        "shoes",
-        "watch",
-        "camera",
-        "looking for",
-        "tablet",
-        "earbuds",
-        "computer",
-    ]
-
-    is_product = any(
-        word in text_lower
-        for word in product_words
-    )
-
-    if is_product:
-
-        return IntentResult(
-            intent="product_search",
-
-            product=text,
-
-            budget=extract_budget(text),
-
-            preference=extract_preference(text),
-
-            language=language,
-        )
-
-    # ========================================================
-    # WEB SEARCH
-    # ========================================================
-
-    web_words = [
-        "search",
-        "google",
-        "latest",
-        "news",
-        "current",
-        "information",
-        "find",
-        "what is",
-        "who is",
-    ]
-
-    is_web = any(
-        word in text_lower
-        for word in web_words
-    )
+    # 3. Web Search Detection
+    web_keywords = ["search", "latest", "news", "what happened", "who is", "isro", "weather",
+                    "today", "information", "tell me about", "update", "updates", "karo"]
+    is_web = any(k in lower for k in web_keywords) or clean_text.endswith("?")
 
     if is_web:
+        clean_q = re.sub(r'\b(search karo|search|batao|tell me)\b', '', clean_text, flags=re.IGNORECASE).strip()
+        return {
+            "intent": "web_search",
+            "query": clean_q or clean_text,
+            "language": language,
+        }
 
-        return IntentResult(
-            intent="web_search",
-
-            query=text,
-
-            language=language,
-        )
-
-    # ========================================================
-    # GENERAL CHAT
-    # ========================================================
-
-    general_words = [
-        "hello",
-        "hi",
-        "hey",
-        "thanks",
-        "thank you",
-        "good morning",
-        "good evening",
-        "how are you",
-    ]
-
-    is_general = any(
-        word in text_lower
-        for word in general_words
-    )
-
-    if is_general:
-
-        return IntentResult(
-            intent="general_chat",
-
-            language=language,
-        )
-
-    # ========================================================
-    # UNKNOWN
-    # ========================================================
-
-    return IntentResult(
-        intent="unknown",
-
-        language=language,
-    )
+    # 4. General fallback
+    return {
+        "intent": "general_chat",
+        "message": clean_text,
+        "language": language,
+    }

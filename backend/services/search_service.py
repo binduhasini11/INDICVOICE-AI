@@ -1,100 +1,33 @@
+from typing import List, Dict, Any
 from backend.tools.travel_search import search_travel
-from backend.tools.product_search import search_products
-from backend.tools.web_search import web_search
+from backend.tools.product_search import search_product
+from backend.tools.web_search import search_web
 from backend.services.ranking import rank_results
 
-
-def execute_search(intent: dict):
+class SearchService:
     """
-    Execute a search based on the structured intent
-    produced by the AI/intent engine.
+    Search Service acting as a clean execution delegate for specialist search tools.
+    Separates low-level data fetching from orchestrator control flow.
     """
 
-    intent_type = intent.get("intent", "").lower()
-
-    # TRAVEL SEARCH
-    if intent_type == "travel_search":
-
+    @staticmethod
+    def execute_travel(intent: Dict[str, Any]) -> List[Dict[str, Any]]:
         results = search_travel(
             origin=intent.get("origin", ""),
             destination=intent.get("destination", ""),
-            travel_date=intent.get("travel_date"),
-            time_preference=intent.get("time_preference"),
-            max_price=intent.get("max_price"),
+            travel_date=intent.get("date"),
+            time_preference=intent.get("time"),
+            max_price=intent.get("budget"),
             preference=intent.get("preference"),
+            transport_type=intent.get("transport_type"),
         )
+        return rank_results(results, intent.get("preference"))
 
-        results = rank_results(
-            results,
-            intent.get("preference")
-        )
+    @staticmethod
+    def execute_product(intent: Dict[str, Any]) -> List[Dict[str, Any]]:
+        results = search_product(intent)
+        return rank_results(results, intent.get("preference"))
 
-        return {
-            "type": "travel",
-            "results": results
-        }
-
-    # PRODUCT SEARCH
-    elif intent_type == "product_search":
-
-        results = search_products(
-            query=intent.get("query", ""),
-            category=intent.get("category"),
-            max_price=intent.get("max_price"),
-            preference=intent.get("preference"),
-        )
-
-        results = rank_results(
-            results,
-            intent.get("preference")
-        )
-
-        return {
-            "type": "product",
-            "results": results
-        }
-
-    # GENERAL WEB SEARCH
-    elif intent_type == "web_search":
-
-        query = intent.get("query", "")
-
-        results = web_search(
-            query=query,
-            max_results=intent.get("max_results", 5)
-        )
-
-        return {
-            "type": "web",
-            "results": results
-        }
-
-
-    # UNKNOWN INTENT
-    else:
-
-        return {
-            "type": "error",
-            "message": "Unknown search intent.",
-            "results": []
-        }
-
-
-if __name__ == "__main__":
-
-    # Demo structured intent
-    demo_intent = {
-        "intent": "travel_search",
-        "origin": "Chennai",
-        "destination": "Bangalore",
-        "time_preference": "morning",
-        "preference": "cheapest"
-    }
-
-    response = execute_search(demo_intent)
-
-    print("\nSearch Type:", response["type"])
-    print("\nResults:")
-
-    for result in response["results"]:
-        print(result)
+    @staticmethod
+    def execute_web(intent: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return search_web(intent)

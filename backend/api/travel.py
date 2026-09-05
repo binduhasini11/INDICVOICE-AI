@@ -1,49 +1,31 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from backend.tools.travel_search import search_travel
 
-from backend.services.search_service import execute_search
+router = APIRouter(prefix="/travel", tags=["Travel"])
 
-
-router = APIRouter(
-    prefix="/travel",
-    tags=["Travel"]
-)
-
-
-class TravelRequest(BaseModel):
+class TravelSearchRequest(BaseModel):
     origin: str
     destination: str
     travel_date: Optional[str] = None
     time_preference: Optional[str] = None
     max_price: Optional[float] = None
     preference: Optional[str] = None
-
+    transport_type: Optional[str] = None
 
 @router.post("/search")
-def travel_search(request: TravelRequest):
-    """
-    Search for travel options using structured user intent.
-    """
-
-    intent = {
-        "intent": "travel_search",
-        "origin": request.origin,
-        "destination": request.destination,
-        "travel_date": request.travel_date,
-        "time_preference": request.time_preference,
-        "max_price": request.max_price,
-        "preference": request.preference
+async def travel_search_endpoint(req: TravelSearchRequest) -> Dict[str, Any]:
+    results = search_travel(
+        origin=req.origin,
+        destination=req.destination,
+        travel_date=req.travel_date,
+        time_preference=req.time_preference,
+        max_price=req.max_price,
+        preference=req.preference,
+        transport_type=req.transport_type,
+    )
+    return {
+        "type": "travel",
+        "results": results
     }
-
-    try:
-        result = execute_search(intent)
-
-        return result
-
-
-    except Exception as error:
-        raise HTTPException(
-            status_code=500,
-            detail=str(error)
-        )

@@ -1,46 +1,23 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from backend.speech import transcribe_audio
-import tempfile
-import os
+from typing import Dict, Any
+from backend.speech import transcribe_audio_bytes
 
-router = APIRouter(
-    prefix="/speech",
-    tags=["Speech"]
-)
-
+router = APIRouter(prefix="/speech", tags=["Speech"])
 
 @router.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Transcribe audio upload from frontend."""
+    if not file:
+        raise HTTPException(status_code=400, detail="No audio file uploaded")
 
-    temp_path = None
+    # Safety limits: 15MB maximum
+    MAX_SIZE = 15 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Audio file too large")
 
-    try:
-        suffix = os.path.splitext(file.filename or "")[1] or ".wav"
-
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix
-        ) as temp_file:
-
-            content = await file.read()
-            temp_file.write(content)
-            temp_path = temp_file.name
-
-        transcript = transcribe_audio(temp_path)
-
-        return {
-            "success": True,
-            "transcript": transcript
-        }
-
-    except Exception as error:
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(error)
-        )
-
-    finally:
-
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+    transcript = transcribe_audio_bytes(content, filename=file.filename or "audio.wav")
+    return {
+        "status": "success",
+        "transcript": transcript
+    }

@@ -1,80 +1,32 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Any
 
-
-def rank_results(
-    results: List[Dict],
-    preference: Optional[str] = None
-) -> List[Dict]:
+def rank_results(results: List[Dict[str, Any]], preference: str = None) -> List[Dict[str, Any]]:
     """
-    Rank search results according to user preference.
+    Rank normalized results deterministically based on user preference.
     """
-
     if not results:
-        return []
+        return results
 
     if not preference:
         return results
 
-    preference = preference.lower().strip()
+    pref = preference.lower().strip()
 
-    # Cheapest / lowest price
-    if preference in [
-        "cheapest",
-        "lowest_price",
-        "low_price",
-        "budget"
-    ]:
-        results.sort(
-            key=lambda x: x.get("price", float("inf"))
-        )
+    if pref in ["cheapest", "lowest_price", "low_price", "budget", "cheap"]:
+        # Only rank by price if price exists
+        return sorted(results, key=lambda x: x.get("price") if x.get("price") is not None else float("inf"))
 
-    # Highest rated
-    elif preference in [
-        "best_rated",
-        "highest_rating",
-        "rating"
-    ]:
-        results.sort(
-            key=lambda x: x.get("rating", 0),
-            reverse=True
-        )
+    if pref in ["earliest", "early", "fastest", "quick"]:
+        def get_sort_key(item: Dict[str, Any]):
+            meta = item.get("metadata", {})
+            dep = meta.get("departure") or "99:99"
+            return dep
+        return sorted(results, key=get_sort_key)
 
-    # Earliest departure
-    elif preference in [
-        "earliest",
-        "early"
-    ]:
-        results.sort(
-            key=lambda x: x.get("departure", "23:59")
-        )
+    if pref in ["rating", "best_rated", "top_rated"]:
+        def get_rating(item: Dict[str, Any]):
+            meta = item.get("metadata", {})
+            return meta.get("rating", 0)
+        return sorted(results, key=get_rating, reverse=True)
 
     return results
-
-
-if __name__ == "__main__":
-
-    demo_results = [
-        {
-            "name": "Train A",
-            "price": 600,
-            "departure": "08:00"
-        },
-        {
-            "name": "Train B",
-            "price": 350,
-            "departure": "06:30"
-        },
-        {
-            "name": "Train C",
-            "price": 450,
-            "departure": "07:00"
-        }
-    ]
-
-    ranked = rank_results(
-        demo_results,
-        preference="cheapest"
-    )
-
-    for result in ranked:
-        print(result)
