@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from backend.api.agent import router as agent_router
 from backend.api.travel import router as travel_router
 from backend.api.products import router as products_router
 from backend.api.speech import router as speech_router
@@ -31,6 +31,7 @@ app.include_router(travel_router)
 
 app.include_router(products_router)
 app.include_router(speech_router)
+app.include_router(agent_router)
 
 
 @app.get("/")
