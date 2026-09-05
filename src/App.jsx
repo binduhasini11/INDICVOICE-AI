@@ -362,7 +362,7 @@ function App() {
           )}
 
           {/* SPECIALIST RESULT CARDS */}
-          {results.length > 0 && (
+          {results.length > 0 ? (
             <div className="results-list" id="results-list">
               <div className="results-heading">
                 {resultType === "travel"
@@ -378,6 +378,26 @@ function App() {
                 <ResultCard key={res.id || res.metadata?.id || index} result={res} index={index} />
               ))}
             </div>
+          ) : (
+            intent?.intent === "travel_search" && !loading && !error && !intent.needs_clarification && (
+              <div className="results-list" id="results-empty">
+                <div
+                  className="result-card"
+                  id="empty-travel-state"
+                  style={{
+                    padding: "24px",
+                    textAlign: "center",
+                    color: "var(--text-muted, #94a3b8)",
+                    fontSize: "14px"
+                  }}
+                >
+                  <span style={{ fontSize: "28px", display: "block", marginBottom: "8px" }}>
+                    {intent.transport_type === "bus" ? "🚌" : intent.transport_type === "flight" ? "✈️" : "🚆"}
+                  </span>
+                  No {intent.transport_type === "bus" ? "buses" : intent.transport_type === "train" ? "trains" : "travel options"} found for {intent.origin || "Origin"} → {intent.destination || "Destination"}
+                </div>
+              </div>
+            )
           )}
         </section>
       </main>

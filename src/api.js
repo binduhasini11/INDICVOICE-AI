@@ -1,8 +1,59 @@
-const API_BASE_URL =
-  (typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.VITE_API_BASE_URL) ||
-  "";
+/**
+ * Safely resolves the API Base URL.
+ * In full-stack container environments (where Vite and Express are hosted on port 3000),
+ * API requests should always route to the same origin (empty string "") rather than an
+ * unreachable local machine URL like 127.0.0.1:8000.
+ */
+function resolveApiBaseUrl() {
+  const envUrl =
+    (typeof import.meta !== "undefined" &&
+      import.meta.env &&
+      typeof import.meta.env.VITE_API_BASE_URL === "string" &&
+      import.meta.env.VITE_API_BASE_URL.trim()) ||
+    "";
+
+  // If envUrl points to legacy local Python/FastAPI port 8000 or points to localhost
+  // while the app is loaded from a remote host (e.g. Cloud Run, preview iframe),
+  // always use same-origin relative URLs ("").
+  if (
+    envUrl.includes(":8000") ||
+    (typeof window !== "undefined" &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1" &&
+      (envUrl.includes("localhost") || envUrl.includes("127.0.0.1")))
+  ) {
+    return "";
+  }
+
+  return envUrl.replace(/\/+$/, "");
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+/**
+ * Helper to fetch from primary endpoint with automatic fallback to relative same-origin path
+ */
+async function robustFetch(endpointPath, options = {}) {
+  const primaryUrl = API_BASE_URL ? `${API_BASE_URL}${endpointPath}` : endpointPath;
+  try {
+    const res = await fetch(primaryUrl, options);
+    if (!res.ok && res.status === 404 && !primaryUrl.startsWith("/api/")) {
+      // Try /api/ prefix fallback
+      try {
+        const altRes = await fetch(`/api${endpointPath}`, options);
+        if (altRes.ok) return altRes;
+      } catch (_) {}
+    }
+    return res;
+  } catch (err) {
+    // If primary URL failed (e.g. mixed content or connection refused on custom API_BASE_URL),
+    // immediately retry on current origin relative path
+    if (API_BASE_URL && primaryUrl !== endpointPath) {
+      return await fetch(endpointPath, options);
+    }
+    throw err;
+  }
+}
 
 /**
  * Send user message or speech transcript to the Central AI Agent Orchestrator.
@@ -20,7 +71,7 @@ export async function sendAgentMessage({ message, sessionId }) {
   const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
-    const response = await fetch(`${API_BASE_URL}/agent/chat`, {
+    const response = await robustFetch("/agent/chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -78,7 +129,7 @@ export async function searchTravel({
   preference = null,
   transport_type = null,
 }) {
-  const response = await fetch(`${API_BASE_URL}/travel/search`, {
+  const response = await robustFetch("/travel/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -110,7 +161,7 @@ export async function searchProducts({
   max_price = null,
   preference = null,
 }) {
-  const response = await fetch(`${API_BASE_URL}/products/search`, {
+  const response = await robustFetch("/products/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -137,7 +188,7 @@ export async function transcribeAudio(audioBlob) {
   const formData = new FormData();
   formData.append("file", audioBlob, "speech.wav");
 
-  const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+  const response = await robustFetch("/speech/transcribe", {
     method: "POST",
     body: formData,
   });

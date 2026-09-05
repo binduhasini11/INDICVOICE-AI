@@ -14,19 +14,32 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Enable CORS for all incoming origins and headers
+  app.use((req: Request, res: Response, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
 
-  // Health check endpoint
-  app.get("/health", (req: Request, res: Response) => {
+  // Health check endpoints (both /health and /api/health)
+  const handleHealth = (req: Request, res: Response) => {
     res.json({
       status: "healthy",
       service: "IndicVoice AI Central Orchestrator",
       version: "1.0.0",
     });
-  });
+  };
+  app.get("/health", handleHealth);
+  app.get("/api/health", handleHealth);
 
-  // Central AI agent orchestration endpoint
-  app.post("/agent/chat", async (req: Request, res: Response) => {
+  // Central AI agent orchestration endpoints (both /agent/chat and /api/agent/chat)
+  const handleChat = async (req: Request, res: Response) => {
     const { message, session_id } = req.body || {};
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ detail: "Message cannot be empty" });
@@ -46,11 +59,13 @@ async function startServer() {
         needs_clarification: false,
       });
     }
-  });
+  };
+  app.post("/agent/chat", handleChat);
+  app.post("/api/agent/chat", handleChat);
 
-  // Direct travel search endpoint
-  app.post("/travel/search", (req: Request, res: Response) => {
-    const { origin, destination, travel_date, time_preference, max_price, preference, transport_type } = req.body || {};
+  // Direct travel search endpoints
+  const handleTravelSearch = (req: Request, res: Response) => {
+    const { origin, destination, travel_date, time_preference, max_price, preference, transport_type, requested_departure_time, requested_arrival_time } = req.body || {};
     if (!origin || !destination) {
       return res.status(400).json({ detail: "Origin and destination are required" });
     }
@@ -63,16 +78,20 @@ async function startServer() {
       max_price,
       preference,
       transport_type,
+      requested_departure_time,
+      requested_arrival_time,
     });
 
     return res.json({
       type: "travel",
       results,
     });
-  });
+  };
+  app.post("/travel/search", handleTravelSearch);
+  app.post("/api/travel/search", handleTravelSearch);
 
-  // Direct product search endpoint
-  app.post("/products/search", (req: Request, res: Response) => {
+  // Direct product search endpoints
+  const handleProductSearch = (req: Request, res: Response) => {
     const { query, category, max_price, preference } = req.body || {};
     const results = searchProducts({
       query,
@@ -85,10 +104,12 @@ async function startServer() {
       type: "product",
       results,
     });
-  });
+  };
+  app.post("/products/search", handleProductSearch);
+  app.post("/api/products/search", handleProductSearch);
 
-  // Audio transcription endpoint
-  app.post("/speech/transcribe", upload.single("file"), async (req: Request, res: Response) => {
+  // Audio transcription endpoints
+  const handleTranscribe = async (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ detail: "No audio file uploaded" });
     }
@@ -125,7 +146,9 @@ async function startServer() {
       status: "success",
       transcript: "",
     });
-  });
+  };
+  app.post("/speech/transcribe", upload.single("file"), handleTranscribe);
+  app.post("/api/speech/transcribe", upload.single("file"), handleTranscribe);
 
   // Vite middleware for development vs static build for production
   if (process.env.NODE_ENV !== "production") {
@@ -137,7 +160,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req: Request, res: Response) => {
+    app.get("*all", (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

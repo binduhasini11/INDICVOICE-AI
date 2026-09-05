@@ -13,6 +13,8 @@ function ResultCard({ result, index }) {
     const arrival = meta.arrival || result.arrival || "--:--";
     const transport = meta.transport || result.transport || result.type || "train";
     const transportIcon = transport === "flight" ? "✈" : transport === "bus" ? "🚌" : "🚆";
+    const operator = meta.operator || result.source;
+    const duration = meta.duration || result.duration;
 
     return (
       <div className="result-card travel-card" id={`result-${index}`}>
@@ -21,14 +23,24 @@ function ResultCard({ result, index }) {
         <div className="result-main">
           <div className="result-header">
             <div>
-              <h3>{result.title || result.name || "Travel Option"}</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+              <h3>{result.title || result.name || `${transport.toUpperCase()} Option`}</h3>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px", flexWrap: "wrap" }}>
                 <span className="transport-type">
                   {transportIcon} {transport.toUpperCase()}
                 </span>
-                {isDemo && (
-                  <span style={{ fontSize: "11px", fontWeight: "600", color: "#f59e0b", background: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "4px", padding: "2px 6px" }}>
-                    DEMO DATA
+                {meta.bus_type && (
+                  <span
+                    className="bus-type-tag"
+                    style={{
+                      fontSize: "11px",
+                      color: "#94a3b8",
+                      background: "rgba(255, 255, 255, 0.06)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "4px",
+                      padding: "2px 6px"
+                    }}
+                  >
+                    {meta.bus_type}
                   </span>
                 )}
               </div>
@@ -45,8 +57,13 @@ function ResultCard({ result, index }) {
               <span>{origin}</span>
             </div>
 
-            <div className="route-line">
-              ────── {transportIcon} ──────
+            <div className="route-line" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              {duration && (
+                <span style={{ fontSize: "11px", color: "#94a3b8", marginBottom: "2px" }}>
+                  {duration}
+                </span>
+              )}
+              <span>────── {transportIcon} ──────</span>
             </div>
 
             <div>
@@ -55,18 +72,48 @@ function ResultCard({ result, index }) {
             </div>
           </div>
 
+          {(meta.boarding_point || meta.dropping_point) && (
+            <div
+              className="bus-points"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                fontSize: "12px",
+                color: "#94a3b8",
+                marginTop: "8px",
+                padding: "6px 10px",
+                background: "rgba(255, 255, 255, 0.03)",
+                borderRadius: "6px",
+                flexWrap: "wrap"
+              }}
+            >
+              {meta.boarding_point && <span>📍 Boarding: {meta.boarding_point}</span>}
+              {meta.dropping_point && <span>🏁 Dropping: {meta.dropping_point}</span>}
+            </div>
+          )}
+
           <div className="result-footer">
             <span>💰 ₹{result.price}</span>
-            <span>📍 {result.source || "IRCTC / IndicVoice"}</span>
-            {result.url && (
+            {operator && <span>🏢 {operator}</span>}
+            {meta.available_seats != null && <span>💺 {meta.available_seats} seats left</span>}
+            {result.url && result.url !== "#" ? (
               <a
                 href={result.url}
                 target="_blank"
                 rel="noreferrer"
-                style={{ color: "#a78bfa", textDecoration: "none", marginLeft: "auto" }}
+                id={`details-link-${meta.id || result.id || index}`}
+                style={{ color: "#a78bfa", textDecoration: "none", marginLeft: "auto", fontWeight: "600" }}
               >
                 View Details →
               </a>
+            ) : (
+              <span
+                id={`details-unavailable-${meta.id || result.id || index}`}
+                style={{ color: "#64748b", fontSize: "12px", marginLeft: "auto", fontStyle: "italic" }}
+              >
+                Details unavailable
+              </span>
             )}
           </div>
         </div>

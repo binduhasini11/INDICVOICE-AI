@@ -20,8 +20,10 @@ class SearchService:
             max_price=intent.get("budget"),
             preference=intent.get("preference"),
             transport_type=intent.get("transport_type"),
+            requested_departure_time=intent.get("requested_departure_time"),
+            requested_arrival_time=intent.get("requested_arrival_time"),
         )
-        return rank_results(results, intent.get("preference"))
+        return rank_results(results, intent.get("preference"), options=intent)
 
     @staticmethod
     def execute_product(intent: Dict[str, Any]) -> List[Dict[str, Any]]:

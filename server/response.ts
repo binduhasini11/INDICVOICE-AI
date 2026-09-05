@@ -20,12 +20,13 @@ export function generateNaturalResponse(
     const count = results.length;
 
     if (count === 0) {
+      const transLabel = transport === "bus" ? "buses" : transport === "train" ? "trains" : transport === "flight" ? "flights" : "travel options";
       if (lang === "ta-en") {
-        return `Mannikavum, ${origin} la irundhu ${destination} ku options kedaikala. Vera time or date check panlama?`;
+        return `Mannikavum, ${origin} la irundhu ${destination} ku ${transport} options kedaikala.`;
       } else if (lang === "hi-en") {
-        return `Maaf kijiye, ${origin} se ${destination} ke liye koi option nahi mila. Kripya doosri date ya time try karein.`;
+        return `Maaf kijiye, ${origin} se ${destination} ke liye koi ${transport} option nahi mila.`;
       } else {
-        return `Sorry, I couldn't find any ${transport} options from ${origin} to ${destination}.`;
+        return `Sorry, I couldn't find any ${transLabel} from ${origin} to ${destination}. No ${transLabel} found for ${origin} → ${destination}.`;
       }
     }
 

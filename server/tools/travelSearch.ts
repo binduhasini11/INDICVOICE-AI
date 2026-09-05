@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { SearchResult } from "../types.js";
+import { calculateDurationMinutes, rankTravelResults } from "../ranking.js";
+
+const FALLBACK_DATA_PATHS = [
+  path.resolve(process.cwd(), "data", "fallback_travel.json"),
+  path.resolve(process.cwd(), "backend", "data", "fallback_travel.json"),
+];
 
 const CITY_ALIASES: Record<string, string> = {
   bangalore: "bengaluru",
@@ -20,12 +26,7 @@ export function normalizeCity(city?: string | null): string {
 }
 
 export function loadTravelData(): any[] {
-  const possiblePaths = [
-    path.resolve(process.cwd(), "data", "fallback_travel.json"),
-    path.resolve(process.cwd(), "backend", "data", "fallback_travel.json"),
-  ];
-
-  for (const p of possiblePaths) {
+  for (const p of FALLBACK_DATA_PATHS) {
     if (fs.existsSync(p)) {
       try {
         const raw = fs.readFileSync(p, "utf-8");
@@ -46,6 +47,8 @@ export function searchTravel({
   max_price,
   preference,
   transport_type,
+  requested_departure_time,
+  requested_arrival_time,
 }: {
   origin: string;
   destination: string;
@@ -54,6 +57,8 @@ export function searchTravel({
   max_price?: number | null;
   preference?: string | null;
   transport_type?: string | null;
+  requested_departure_time?: string | null;
+  requested_arrival_time?: string | null;
 }): SearchResult[] {
   const data = loadTravelData();
   const normOrigin = normalizeCity(origin);
@@ -102,17 +107,7 @@ export function searchTravel({
     filtered.push(item);
   }
 
-  // Apply ranking preference
-  if (preference) {
-    const pref = preference.toLowerCase();
-    if (["cheapest", "lowest_price", "low_price", "budget"].includes(pref)) {
-      filtered.sort((a, b) => (a.price || 0) - (b.price || 0));
-    } else if (["earliest", "early", "fastest", "quick"].includes(pref)) {
-      filtered.sort((a, b) => (a.departure || "99:99").localeCompare(b.departure || "99:99"));
-    }
-  }
-
-  // Return normalized result format
+  // Return normalized result format with duration calculated from actual fields
   const normalizedResults: SearchResult[] = [];
   for (const item of filtered) {
     const transType = item.type || "train";
@@ -123,14 +118,21 @@ export function searchTravel({
     const name = item.name || `${transType.charAt(0).toUpperCase() + transType.slice(1)} Option`;
     const price = item.price || 0;
 
+    const durationMinutes = calculateDurationMinutes(dep, arr);
+    const durHours = Math.floor(durationMinutes / 60);
+    const durMins = durationMinutes % 60;
+    const formattedDuration = durHours > 0
+      ? `${durHours}h ${durMins > 0 ? durMins + "m" : ""}`.trim()
+      : `${durMins}m`;
+
     normalizedResults.push({
       type: "travel",
       title: name,
       description: `${transType.charAt(0).toUpperCase() + transType.slice(1)} from ${orig} to ${dest} (${dep} - ${arr})`,
       price,
       currency: item.currency || "INR",
-      source: "Demo Travel Data (IRCTC Dataset)",
-      url: item.url || "https://www.irctc.co.in",
+      source: item.source || (transType === "bus" ? (item.operator || "Bus Operator") : (transType === "flight" ? (item.operator || "Airlines") : "IRCTC")),
+      url: item.url || null,
       image: null,
       metadata: {
         id: item.id,
@@ -139,11 +141,24 @@ export function searchTravel({
         destination: dest,
         departure: dep,
         arrival: arr,
+        duration: item.duration || formattedDuration,
+        duration_minutes: durationMinutes,
         date: travel_date || "tomorrow",
-        is_demo: true,
+        operator: item.operator || item.source || name,
+        bus_type: item.bus_type || null,
+        boarding_point: item.boarding_point || null,
+        dropping_point: item.dropping_point || null,
+        available_seats: item.available_seats != null ? item.available_seats : null,
+        service_id: item.service_id || item.train_number || item.id,
       },
     });
   }
 
-  return normalizedResults;
+  // Apply ranking system (cheapest, fastest, earliest, or balanced ranking)
+  return rankTravelResults(normalizedResults, {
+    preference,
+    time_preference,
+    requested_departure_time,
+    requested_arrival_time,
+  });
 }

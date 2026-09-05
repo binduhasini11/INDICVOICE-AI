@@ -49,50 +49,102 @@ def extract_budget(text: str) -> Optional[float]:
 
 def extract_cities(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract origin and destination with multilingual Indic pattern support."""
-    NON_CITIES = {"train", "trains", "bus", "buses", "flight", "flights", "plane", "ticket", "tickets", "chahiye", "venum", "options", "cheap", "sasta", "travel"}
+    NON_CITIES = {
+        "train", "trains", "bus", "buses", "flight", "flights", "plane", "ticket",
+        "tickets", "chahiye", "venum", "options", "cheap", "sasta", "travel", "fastest",
+        "cheapest", "quick", "show", "me", "find", "between"
+    }
 
     # Pattern 1: Tamil "Chennai la irundhu Bangalore ku"
     m_ta = re.search(r'\b([a-zA-Z]+)\s+(?:la\s+irundhu|lerundhu|lendhu)\s+([a-zA-Z]+)\s+ku\b', text, re.IGNORECASE)
     if m_ta:
         c1, c2 = m_ta.group(1).capitalize(), m_ta.group(2).capitalize()
-        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+        orig = None if c1.lower() in NON_CITIES else c1
+        dest = None if c2.lower() in NON_CITIES else c2
+        if orig and dest:
+            return orig, dest
 
     # Pattern 2: Hindi "Delhi se Mumbai"
     m_hi = re.search(r'\b([a-zA-Z]+)\s+se\s+([a-zA-Z]+)(?:\s+tak|\s+ke\s+liye)?\b', text, re.IGNORECASE)
     if m_hi:
         c1, c2 = m_hi.group(1).capitalize(), m_hi.group(2).capitalize()
-        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+        orig = None if c1.lower() in NON_CITIES else c1
+        dest = None if c2.lower() in NON_CITIES else c2
+        if orig and dest:
+            return orig, dest
 
-    # Pattern 3: English "from Chennai to Bangalore"
+    # Pattern 3: English "between Chennai and Bangalore/Bengaluru"
+    m_between = re.search(r'\bbetween\s+([a-zA-Z]+)\s+and\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
+    if m_between:
+        c1, c2 = m_between.group(1).capitalize(), m_between.group(2).capitalize()
+        orig = None if c1.lower() in NON_CITIES else c1
+        dest = None if c2.lower() in NON_CITIES else c2
+        if orig and dest:
+            return orig, dest
+
+    # Pattern 4: Inverted "to Bengaluru from Chennai"
+    m_inverted = re.search(r'\bto\s+([a-zA-Z]+)\s+from\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
+    if m_inverted:
+        dest = m_inverted.group(1).capitalize()
+        orig = m_inverted.group(2).capitalize()
+        c_orig = None if orig.lower() in NON_CITIES else orig
+        c_dest = None if dest.lower() in NON_CITIES else dest
+        if c_orig and c_dest:
+            return c_orig, c_dest
+
+    # Pattern 5: English "from Chennai to Bangalore"
     m_en = re.search(r'\bfrom\s+([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
     if m_en:
         c1, c2 = m_en.group(1).capitalize(), m_en.group(2).capitalize()
-        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+        orig = None if c1.lower() in NON_CITIES else c1
+        dest = None if c2.lower() in NON_CITIES else c2
+        if orig and dest:
+            return orig, dest
 
-    # Pattern 4: "Chennai to Bangalore"
+    # Pattern 6: "Chennai to Bangalore" (ensure first word is not a non-city keyword)
     m_to = re.search(r'\b([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b', text, re.IGNORECASE)
     if m_to:
-        c1 = next((c for c in KNOWN_CITIES if c.lower() == m_to.group(1).lower()), m_to.group(1).capitalize())
-        c2 = next((c for c in KNOWN_CITIES if c.lower() == m_to.group(2).lower()), m_to.group(2).capitalize())
-        return (None if c1.lower() in NON_CITIES else c1), (None if c2.lower() in NON_CITIES else c2)
+        first_word = m_to.group(1).lower()
+        second_word = m_to.group(2).lower()
+        if first_word not in NON_CITIES and second_word not in NON_CITIES:
+            c1 = next((c for c in KNOWN_CITIES if c.lower() == first_word), m_to.group(1).capitalize())
+            c2 = next((c for c in KNOWN_CITIES if c.lower() == second_word), m_to.group(2).capitalize())
+            return c1, c2
 
-    # Pattern 5: Look for two known cities
+    # Pattern 7: Look for known cities and prepositions
     found = []
     for c in KNOWN_CITIES:
-        if re.search(rf'\b{c}\b', text, re.IGNORECASE):
-            # preserve appearance order
-            pos = text.lower().find(c.lower())
+        match = re.search(rf'\b{c}\b', text, re.IGNORECASE)
+        if match:
             if not any(fc[0].lower() == c.lower() for fc in found):
-                found.append((c, pos))
+                found.append((c, match.start()))
     found.sort(key=lambda x: x[1])
+
     if len(found) >= 2:
-        return found[0][0], found[1][0]
-    elif len(found) == 1:
-        # Check if origin or destination
         lower = text.lower()
-        if "to " + found[0][0].lower() in lower or found[0][0].lower() + " ku" in lower:
+        city1 = found[0][0]
+        city2 = found[1][0]
+        c1_lower = city1.lower()
+        c2_lower = city2.lower()
+
+        # Check if inverted: e.g. "to Bengaluru ... from Chennai"
+        has_to1 = bool(re.search(rf'\b(?:to|ku)\s+{c1_lower}\b', lower)) or f"{c1_lower} ku" in lower
+        has_from2 = bool(re.search(rf'\b(?:from|se)\s+{c2_lower}\b', lower)) or f"{c2_lower} la irundhu" in lower or f"{c2_lower} se" in lower
+        if has_to1 and has_from2:
+            return city2, city1
+
+        has_from1 = bool(re.search(rf'\b(?:from|se)\s+{c1_lower}\b', lower)) or f"{c1_lower} la irundhu" in lower or f"{c1_lower} se" in lower
+        has_to2 = bool(re.search(rf'\b(?:to|ku)\s+{c2_lower}\b', lower)) or f"{c2_lower} ku" in lower
+        if has_from1 and has_to2:
+            return city1, city2
+
+        return city1, city2
+    elif len(found) == 1:
+        lower = text.lower()
+        c_name = found[0][0].lower()
+        if bool(re.search(rf'\b(?:to|ku)\s+{c_name}\b', lower)) or f"{c_name} ku" in lower:
             return None, found[0][0]
-        if "from " + found[0][0].lower() in lower or found[0][0].lower() + " la irundhu" in lower or found[0][0].lower() + " se" in lower:
+        if bool(re.search(rf'\b(?:from|se)\s+{c_name}\b', lower)) or f"{c_name} la irundhu" in lower or f"{c_name} se" in lower:
             return found[0][0], None
         return found[0][0], None
 
@@ -119,22 +171,109 @@ def extract_date_and_time(text: str) -> Tuple[Optional[str], Optional[str]]:
 
     return date, time
 
+def extract_departure_and_arrival_times(text: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    lower = text.lower()
+    requested_departure_time = None
+    requested_arrival_time = None
+    time_slot = None
+
+    if any(k in lower for k in ["morning", "kaalai", "subah"]):
+        time_slot = "morning"
+    elif any(k in lower for k in ["afternoon", "madhiyam", "dopahar"]):
+        time_slot = "afternoon"
+    elif any(k in lower for k in ["evening", "maalai", "shaam"]):
+        time_slot = "evening"
+    elif any(k in lower for k in ["night", "raathri", "raat"]):
+        time_slot = "night"
+
+    # 1. Arrival time patterns
+    arr_match1 = re.search(r"(?:reach(?:ing)?|arriv(?:e|ing|al)|pahunch(?:na|e|te)?)\s+(?:(?:to|in|at)\s+[a-z\s]+\s+)?(?:by|before|around|at|till|tak)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", lower)
+    if arr_match1:
+        h = int(arr_match1.group(1))
+        m = int(arr_match1.group(2)) if arr_match1.group(2) else 0
+        ampm = arr_match1.group(3)
+        if ampm == "pm" and h < 12:
+            h += 12
+        if ampm == "am" and h == 12:
+            h = 0
+        requested_arrival_time = f"{h:02d}:{m:02d}"
+    else:
+        arr_match2 = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:kulla|varaikkum|kulle|baje tak|tak)?\s*(?:reach|poganum|pahunch)", lower)
+        if arr_match2:
+            h = int(arr_match2.group(1))
+            m = int(arr_match2.group(2)) if arr_match2.group(2) else 0
+            ampm = arr_match2.group(3)
+            if ampm == "pm" and h < 12:
+                h += 12
+            if ampm == "am" and h == 12:
+                h = 0
+            requested_arrival_time = f"{h:02d}:{m:02d}"
+
+    # 2. Departure time patterns
+    dep_match1 = re.search(r"(?:depart(?:ing|ure)?|leaves?|start(?:ing)?)\s+(?:at|around|after|by)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", lower)
+    if dep_match1:
+        h = int(dep_match1.group(1))
+        m = int(dep_match1.group(2)) if dep_match1.group(2) else 0
+        ampm = dep_match1.group(3)
+        if ampm == "pm" and h < 12:
+            h += 12
+        if ampm == "am" and h == 12:
+            h = 0
+        requested_departure_time = f"{h:02d}:{m:02d}"
+    else:
+        dep_match2 = re.search(r"(?:around|at|subah|kaalai)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|baje|manikku)?", lower)
+        if dep_match2 and not requested_arrival_time:
+            h = int(dep_match2.group(1))
+            m = int(dep_match2.group(2)) if dep_match2.group(2) else 0
+            modifier = dep_match2.group(3)
+            if modifier == "pm" and h < 12:
+                h += 12
+            if modifier == "am" and h == 12:
+                h = 0
+            if any(w in lower for w in ["subah", "kaalai"]) and h <= 12:
+                if h == 12:
+                    h = 0
+            if any(w in lower for w in ["shaam", "maalai"]) and h < 12:
+                h += 12
+            requested_departure_time = f"{h:02d}:{m:02d}"
+
+    if not time_slot and requested_departure_time:
+        dep_hour = int(requested_departure_time.split(":")[0])
+        if 5 <= dep_hour < 12:
+            time_slot = "morning"
+        elif 12 <= dep_hour < 17:
+            time_slot = "afternoon"
+        elif 17 <= dep_hour < 21:
+            time_slot = "evening"
+        else:
+            time_slot = "night"
+
+    return requested_departure_time, requested_arrival_time, time_slot
+
 def extract_transport_type(text: str) -> Optional[str]:
     lower = text.lower()
-    if any(w in lower for w in ["train", "rail", "railway", "trains", "shatabdi", "vande bharat", "express"]):
-        return "train"
-    if any(w in lower for w in ["bus", "buses", "ksrtc", "setc"]):
+    # 1. Bus markers (including bus operators)
+    if bool(re.search(r'\b(bus|buses|ksrtc|setc|volvo|redbus|sleeper\s*bus)\b', lower)):
         return "bus"
-    if any(w in lower for w in ["flight", "flights", "plane", "airplane", "air"]):
+    # 2. Flight markers
+    if bool(re.search(r'\b(flight|flights|plane|airplane|indigo|air\s*india)\b', lower)):
         return "flight"
+    # 3. Train markers
+    if bool(re.search(r'\b(train|trains|rail|railway|shatabdi|vande\s*bharat|irctc|intercity)\b', lower)):
+        return "train"
+    # 4. Express keyword as train (only if no bus was mentioned)
+    if bool(re.search(r'\bexpress\b', lower)):
+        return "train"
     return None
 
 def extract_preference(text: str) -> Optional[str]:
     lower = text.lower()
     if any(w in lower for w in ["cheap", "cheapest", "kammi-a", "sasta", "sasti", "low price", "lowest price", "budget"]):
         return "cheapest"
-    if any(w in lower for w in ["fast", "fastest", "quick", "earliest", "jaldi", "fast-a", "early"]):
+    if any(w in lower for w in ["fast", "fastest", "quick", "fast-a", "shortest", "shortest duration", "minimum duration"]):
         return "fastest"
+    if any(w in lower for w in ["earliest", "early", "jaldi"]):
+        return "earliest"
     if any(w in lower for w in ["best", "top rated", "accha", "rating", "top-rated"]):
         return "rating"
     if any(w in lower for w in ["wireless", "bluetooth", "cordless"]):
@@ -161,7 +300,9 @@ def extract_intent(text: str) -> Dict[str, Any]:
     # 1. Travel Search Detection
     origin, destination = extract_cities(clean_text)
     transport = extract_transport_type(clean_text)
-    date, time_pref = extract_date_and_time(clean_text)
+    date, raw_time_pref = extract_date_and_time(clean_text)
+    req_dep, req_arr, time_slot = extract_departure_and_arrival_times(clean_text)
+    time_pref = raw_time_pref or time_slot
     budget = extract_budget(clean_text)
     pref = extract_preference(clean_text)
 
@@ -182,6 +323,8 @@ def extract_intent(text: str) -> Dict[str, Any]:
             "transport_type": transport or "train",
             "budget": budget,
             "language": language,
+            "requested_departure_time": req_dep,
+            "requested_arrival_time": req_arr,
         }
 
     # 2. Product Search Detection

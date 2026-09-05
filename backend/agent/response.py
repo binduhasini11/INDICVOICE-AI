@@ -22,12 +22,13 @@ def generate_natural_response(
         count = len(results)
 
         if count == 0:
+            trans_label = "buses" if transport == "bus" else "trains" if transport == "train" else "flights" if transport == "flight" else "travel options"
             if lang == "ta-en":
-                return f"Mannikavum, {origin} la irundhu {destination} ku options kedaikala. Vera time or date check panlama?"
+                return f"Mannikavum, {origin} la irundhu {destination} ku {transport} options kedaikala."
             elif lang == "hi-en":
-                return f"Maaf kijiye, {origin} se {destination} ke liye koi option nahi mila. Kripya doosri date ya time try karein."
+                return f"Maaf kijiye, {origin} se {destination} ke liye koi {transport} option nahi mila."
             else:
-                return f"Sorry, I couldn't find any {transport} options from {origin} to {destination}."
+                return f"Sorry, I couldn't find any {trans_label} from {origin} to {destination}. No {trans_label} found for {origin} → {destination}."
 
         if lang == "ta-en":
             return f"Naan {origin} la irundhu {destination} ku {count} {transport} options kandupidichuten. Keela check pannunga!"

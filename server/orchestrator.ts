@@ -82,8 +82,10 @@ export class CentralOrchestrator {
           max_price: intent.budget,
           preference: intent.preference,
           transport_type: intent.transport_type,
+          requested_departure_time: intent.requested_departure_time,
+          requested_arrival_time: intent.requested_arrival_time,
         });
-        results = rankResults(rawResults, intent.preference);
+        results = rankResults(rawResults, intent.preference, intent);
         resultType = "travel";
       } else if (intentType === "product_search") {
         const rawResults = searchProducts({

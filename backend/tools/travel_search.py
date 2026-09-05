@@ -1,8 +1,9 @@
 import json
-from pathlib import Path
+import os
 from typing import List, Dict, Any, Optional
+from backend.services.ranking import calculate_duration_minutes, rank_travel_results
 
-FALLBACK_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "fallback_travel.json"
+DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "fallback_travel.json")
 
 CITY_ALIASES = {
     "bangalore": "bengaluru",
@@ -22,10 +23,10 @@ def normalize_city(city: Optional[str]) -> str:
     return CITY_ALIASES.get(clean, clean)
 
 def load_travel_data() -> List[Dict[str, Any]]:
-    if not FALLBACK_DATA_PATH.exists():
+    if not os.path.exists(DATA_PATH):
         return []
     try:
-        with open(FALLBACK_DATA_PATH, "r", encoding="utf-8") as f:
+        with open(DATA_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"Warning: could not load travel data: {e}")
@@ -39,9 +40,11 @@ def search_travel(
     max_price: Optional[float] = None,
     preference: Optional[str] = None,
     transport_type: Optional[str] = None,
+    requested_departure_time: Optional[str] = None,
+    requested_arrival_time: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Search travel options and return normalized travel results.
+    Search travel options and return ranked, normalized travel results.
     """
     data = load_travel_data()
     norm_origin = normalize_city(origin)
@@ -85,16 +88,6 @@ def search_travel(
 
         filtered.append(item)
 
-    # Apply ranking preference
-    if preference:
-        pref = preference.lower()
-        if pref in ["cheapest", "lowest_price", "low_price", "budget"]:
-            filtered.sort(key=lambda x: x.get("price", 0))
-        elif pref in ["earliest", "early"]:
-            filtered.sort(key=lambda x: x.get("departure", "99:99"))
-        elif pref in ["fastest", "quick"]:
-            filtered.sort(key=lambda x: x.get("departure", "99:99"))
-
     # Return normalized result format
     normalized_results = []
     for item in filtered:
@@ -106,14 +99,20 @@ def search_travel(
         name = item.get("name", f"{trans_type.capitalize()} Option")
         price = item.get("price", 0)
 
+        dur_mins = calculate_duration_minutes(dep, arr)
+        dur_hours = dur_mins // 60
+        rem_mins = dur_mins % 60
+        formatted_dur = f"{dur_hours}h {rem_mins}m" if rem_mins > 0 else f"{dur_hours}h"
+
+        source = item.get("source") or (item.get("operator") if trans_type == "bus" else ("Airlines" if trans_type == "flight" else "IRCTC"))
         normalized_results.append({
             "type": "travel",
             "title": name,
             "description": f"{trans_type.capitalize()} from {orig} to {dest} ({dep} - {arr})",
             "price": price,
             "currency": item.get("currency", "INR"),
-            "source": "Demo Travel Data (IRCTC Dataset)",
-            "url": item.get("url", "https://www.irctc.co.in"),
+            "source": source,
+            "url": item.get("url"),
             "image": None,
             "metadata": {
                 "id": item.get("id"),
@@ -122,9 +121,22 @@ def search_travel(
                 "destination": dest,
                 "departure": dep,
                 "arrival": arr,
+                "duration": item.get("duration") or formatted_dur,
+                "duration_minutes": dur_mins,
                 "date": travel_date or "tomorrow",
-                "is_demo": True,
+                "operator": item.get("operator") or source,
+                "bus_type": item.get("bus_type"),
+                "boarding_point": item.get("boarding_point"),
+                "dropping_point": item.get("dropping_point"),
+                "available_seats": item.get("available_seats"),
+                "service_id": item.get("service_id") or item.get("train_number") or item.get("id"),
             }
         })
 
-    return normalized_results
+    # Apply ranking system
+    return rank_travel_results(normalized_results, {
+        "preference": preference,
+        "time_preference": time_preference,
+        "requested_departure_time": requested_departure_time,
+        "requested_arrival_time": requested_arrival_time,
+    })

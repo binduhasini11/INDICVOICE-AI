@@ -57,7 +57,8 @@ export function extractBudget(text: string): number | null {
 export function extractCities(text: string): [string | null, string | null] {
   const NON_CITIES = new Set([
     "train", "trains", "bus", "buses", "flight", "flights", "plane", "ticket",
-    "tickets", "chahiye", "venum", "options", "cheap", "sasta", "travel"
+    "tickets", "chahiye", "venum", "options", "cheap", "sasta", "travel", "fastest",
+    "cheapest", "quick", "show", "me", "find", "between"
   ]);
 
   // Pattern 1: Tamil "Chennai la irundhu Bangalore ku"
@@ -65,10 +66,9 @@ export function extractCities(text: string): [string | null, string | null] {
   if (mTa) {
     const c1 = capitalize(mTa[1]);
     const c2 = capitalize(mTa[2]);
-    return [
-      NON_CITIES.has(c1.toLowerCase()) ? null : c1,
-      NON_CITIES.has(c2.toLowerCase()) ? null : c2
-    ];
+    const orig = NON_CITIES.has(c1.toLowerCase()) ? null : c1;
+    const dest = NON_CITIES.has(c2.toLowerCase()) ? null : c2;
+    if (orig && dest) return [orig, dest];
   }
 
   // Pattern 2: Hindi "Delhi se Mumbai"
@@ -76,37 +76,56 @@ export function extractCities(text: string): [string | null, string | null] {
   if (mHi) {
     const c1 = capitalize(mHi[1]);
     const c2 = capitalize(mHi[2]);
-    return [
-      NON_CITIES.has(c1.toLowerCase()) ? null : c1,
-      NON_CITIES.has(c2.toLowerCase()) ? null : c2
-    ];
+    const orig = NON_CITIES.has(c1.toLowerCase()) ? null : c1;
+    const dest = NON_CITIES.has(c2.toLowerCase()) ? null : c2;
+    if (orig && dest) return [orig, dest];
   }
 
-  // Pattern 3: English "from Chennai to Bangalore"
+  // Pattern 3: English "between Chennai and Bangalore/Bengaluru"
+  const mBetween = text.match(/\bbetween\s+([a-zA-Z]+)\s+and\s+([a-zA-Z]+)\b/i);
+  if (mBetween) {
+    const c1 = capitalize(mBetween[1]);
+    const c2 = capitalize(mBetween[2]);
+    const orig = NON_CITIES.has(c1.toLowerCase()) ? null : c1;
+    const dest = NON_CITIES.has(c2.toLowerCase()) ? null : c2;
+    if (orig && dest) return [orig, dest];
+  }
+
+  // Pattern 4: Inverted "to Bengaluru from Chennai"
+  const mInverted = text.match(/\bto\s+([a-zA-Z]+)\s+from\s+([a-zA-Z]+)\b/i);
+  if (mInverted) {
+    const dest = capitalize(mInverted[1]);
+    const orig = capitalize(mInverted[2]);
+    const cOrig = NON_CITIES.has(orig.toLowerCase()) ? null : orig;
+    const cDest = NON_CITIES.has(dest.toLowerCase()) ? null : dest;
+    if (cOrig && cDest) return [cOrig, cDest];
+  }
+
+  // Pattern 5: English "from Chennai to Bangalore"
   const mEn = text.match(/\bfrom\s+([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b/i);
   if (mEn) {
     const c1 = capitalize(mEn[1]);
     const c2 = capitalize(mEn[2]);
-    return [
-      NON_CITIES.has(c1.toLowerCase()) ? null : c1,
-      NON_CITIES.has(c2.toLowerCase()) ? null : c2
-    ];
+    const orig = NON_CITIES.has(c1.toLowerCase()) ? null : c1;
+    const dest = NON_CITIES.has(c2.toLowerCase()) ? null : c2;
+    if (orig && dest) return [orig, dest];
   }
 
-  // Pattern 4: "Chennai to Bangalore"
+  // Pattern 6: "Chennai to Bangalore" (ensure first word is not a non-city keyword)
   const mTo = text.match(/\b([a-zA-Z]+)\s+to\s+([a-zA-Z]+)\b/i);
   if (mTo) {
-    const known1 = KNOWN_CITIES.find((c) => c.toLowerCase() === mTo[1].toLowerCase());
-    const known2 = KNOWN_CITIES.find((c) => c.toLowerCase() === mTo[2].toLowerCase());
-    const c1 = known1 || capitalize(mTo[1]);
-    const c2 = known2 || capitalize(mTo[2]);
-    return [
-      NON_CITIES.has(c1.toLowerCase()) ? null : c1,
-      NON_CITIES.has(c2.toLowerCase()) ? null : c2
-    ];
+    const firstWord = mTo[1].toLowerCase();
+    const secondWord = mTo[2].toLowerCase();
+    if (!NON_CITIES.has(firstWord) && !NON_CITIES.has(secondWord)) {
+      const known1 = KNOWN_CITIES.find((c) => c.toLowerCase() === firstWord);
+      const known2 = KNOWN_CITIES.find((c) => c.toLowerCase() === secondWord);
+      const c1 = known1 || capitalize(mTo[1]);
+      const c2 = known2 || capitalize(mTo[2]);
+      return [c1, c2];
+    }
   }
 
-  // Pattern 5: Look for two known cities
+  // Pattern 7: Look for known cities in text and check surrounding prepositions
   const found: { city: string; pos: number }[] = [];
   for (const c of KNOWN_CITIES) {
     const regex = new RegExp(`\\b${c}\\b`, "i");
@@ -120,14 +139,33 @@ export function extractCities(text: string): [string | null, string | null] {
   found.sort((a, b) => a.pos - b.pos);
 
   if (found.length >= 2) {
+    const lower = text.toLowerCase();
+    const city1 = found[0].city;
+    const city2 = found[1].city;
+    const c1Lower = city1.toLowerCase();
+    const c2Lower = city2.toLowerCase();
+
+    // Check if inverted: e.g. "to Bengaluru ... from Chennai"
+    const hasTo1 = new RegExp(`\\b(?:to|ku)\\s+${c1Lower}\\b`, "i").test(lower) || lower.includes(`${c1Lower} ku`);
+    const hasFrom2 = new RegExp(`\\b(?:from|se)\\s+${c2Lower}\\b`, "i").test(lower) || lower.includes(`${c2Lower} la irundhu`) || lower.includes(`${c2Lower} se`);
+    if (hasTo1 && hasFrom2) {
+      return [city2, city1];
+    }
+
+    const hasFrom1 = new RegExp(`\\b(?:from|se)\\s+${c1Lower}\\b`, "i").test(lower) || lower.includes(`${c1Lower} la irundhu`) || lower.includes(`${c1Lower} se`);
+    const hasTo2 = new RegExp(`\\b(?:to|ku)\\s+${c2Lower}\\b`, "i").test(lower) || lower.includes(`${c2Lower} ku`);
+    if (hasFrom1 && hasTo2) {
+      return [city1, city2];
+    }
+
     return [found[0].city, found[1].city];
   } else if (found.length === 1) {
     const lower = text.toLowerCase();
     const cName = found[0].city.toLowerCase();
-    if (lower.includes(`to ${cName}`) || lower.includes(`${cName} ku`)) {
+    if (new RegExp(`\\b(?:to|ku)\\s+${cName}\\b`, "i").test(lower) || lower.includes(`${cName} ku`)) {
       return [null, found[0].city];
     }
-    if (lower.includes(`from ${cName}`) || lower.includes(`${cName} la irundhu`) || lower.includes(`${cName} se`)) {
+    if (new RegExp(`\\b(?:from|se)\\s+${cName}\\b`, "i").test(lower) || lower.includes(`${cName} la irundhu`) || lower.includes(`${cName} se`)) {
       return [found[0].city, null];
     }
     return [found[0].city, null];
@@ -160,16 +198,106 @@ export function extractDateAndTime(text: string): [string | null, string | null]
   return [date, time];
 }
 
+export function extractDepartureAndArrivalTimes(text: string): {
+  requestedDepartureTime: string | null;
+  requestedArrivalTime: string | null;
+  timeSlot: string | null;
+} {
+  const lower = text.toLowerCase();
+  let requestedDepartureTime: string | null = null;
+  let requestedArrivalTime: string | null = null;
+  let timeSlot: string | null = null;
+
+  if (["morning", "kaalai", "subah"].some((k) => lower.includes(k))) {
+    timeSlot = "morning";
+  } else if (["afternoon", "madhiyam", "dopahar"].some((k) => lower.includes(k))) {
+    timeSlot = "afternoon";
+  } else if (["evening", "maalai", "shaam"].some((k) => lower.includes(k))) {
+    timeSlot = "evening";
+  } else if (["night", "raathri", "raat"].some((k) => lower.includes(k))) {
+    timeSlot = "night";
+  }
+
+  // 1. Arrival time patterns: e.g. "reach by 11", "reaching before 12", "arrive around 10:30"
+  const arrRegex1 = /(?:reach(?:ing)?|arriv(?:e|ing|al)|pahunch(?:na|e|te)?)\s+(?:(?:to|in|at)\s+[a-z\s]+\s+)?(?:by|before|around|at|till|tak)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i;
+  const arrMatch1 = lower.match(arrRegex1);
+  if (arrMatch1) {
+    let h = parseInt(arrMatch1[1], 10);
+    const m = arrMatch1[2] ? parseInt(arrMatch1[2], 10) : 0;
+    const ampm = arrMatch1[3];
+    if (ampm === "pm" && h < 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    requestedArrivalTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  } else {
+    const arrRegex2 = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:kulla|varaikkum|kulle|baje tak|tak)?\s*(?:reach|poganum|pahunch)/i;
+    const arrMatch2 = lower.match(arrRegex2);
+    if (arrMatch2) {
+      let h = parseInt(arrMatch2[1], 10);
+      const m = arrMatch2[2] ? parseInt(arrMatch2[2], 10) : 0;
+      const ampm = arrMatch2[3];
+      if (ampm === "pm" && h < 12) h += 12;
+      if (ampm === "am" && h === 12) h = 0;
+      requestedArrivalTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+  }
+
+  // 2. Departure time patterns: e.g. "departing at 7", "leaves at 6:30", "around 7 am"
+  const depRegex1 = /(?:depart(?:ing|ure)?|leaves?|start(?:ing)?)\s+(?:at|around|after|by)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i;
+  const depMatch1 = lower.match(depRegex1);
+  if (depMatch1) {
+    let h = parseInt(depMatch1[1], 10);
+    const m = depMatch1[2] ? parseInt(depMatch1[2], 10) : 0;
+    const ampm = depMatch1[3];
+    if (ampm === "pm" && h < 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    requestedDepartureTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  } else {
+    const depRegex2 = /(?:around|at|subah|kaalai)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|baje|manikku)?/i;
+    const depMatch2 = lower.match(depRegex2);
+    if (depMatch2 && !requestedArrivalTime) {
+      let h = parseInt(depMatch2[1], 10);
+      const m = depMatch2[2] ? parseInt(depMatch2[2], 10) : 0;
+      const modifier = depMatch2[3];
+      if (modifier === "pm" && h < 12) h += 12;
+      if (modifier === "am" && h === 12) h = 0;
+      if (["subah", "kaalai"].some((w) => lower.includes(w)) && h <= 12) {
+        if (h === 12) h = 0;
+      }
+      if (["shaam", "maalai"].some((w) => lower.includes(w)) && h < 12) {
+        h += 12;
+      }
+      requestedDepartureTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+  }
+
+  if (!timeSlot && requestedDepartureTime) {
+    const depHour = parseInt(requestedDepartureTime.split(":")[0], 10);
+    if (depHour >= 5 && depHour < 12) timeSlot = "morning";
+    else if (depHour >= 12 && depHour < 17) timeSlot = "afternoon";
+    else if (depHour >= 17 && depHour < 21) timeSlot = "evening";
+    else timeSlot = "night";
+  }
+
+  return { requestedDepartureTime, requestedArrivalTime, timeSlot };
+}
+
 export function extractTransportType(text: string): string | null {
   const lower = text.toLowerCase();
-  if (["train", "rail", "railway", "trains", "shatabdi", "vande bharat", "express"].some((w) => lower.includes(w))) {
-    return "train";
-  }
-  if (["bus", "buses", "ksrtc", "setc"].some((w) => lower.includes(w))) {
+  // 1. Bus markers (including bus operators)
+  if (/\b(bus|buses|ksrtc|setc|volvo|redbus|sleeper\s*bus)\b/i.test(lower)) {
     return "bus";
   }
-  if (["flight", "flights", "plane", "airplane", "air"].some((w) => lower.includes(w))) {
+  // 2. Flight markers
+  if (/\b(flight|flights|plane|airplane|indigo|air\s*india)\b/i.test(lower)) {
     return "flight";
+  }
+  // 3. Train markers
+  if (/\b(train|trains|rail|railway|shatabdi|vande\s*bharat|irctc|intercity)\b/i.test(lower)) {
+    return "train";
+  }
+  // 4. Express keyword as train (only if no bus was mentioned)
+  if (/\bexpress\b/i.test(lower)) {
+    return "train";
   }
   return null;
 }
@@ -179,8 +307,11 @@ export function extractPreference(text: string): string | null {
   if (["cheap", "cheapest", "kammi-a", "sasta", "sasti", "low price", "lowest price", "budget"].some((w) => lower.includes(w))) {
     return "cheapest";
   }
-  if (["fast", "fastest", "quick", "earliest", "jaldi", "fast-a", "early"].some((w) => lower.includes(w))) {
+  if (["fast", "fastest", "quick", "fast-a", "shortest", "shortest duration", "minimum duration"].some((w) => lower.includes(w))) {
     return "fastest";
+  }
+  if (["earliest", "early", "jaldi"].some((w) => lower.includes(w))) {
+    return "earliest";
   }
   if (["best", "top rated", "accha", "rating", "top-rated"].some((w) => lower.includes(w))) {
     return "rating";
@@ -208,7 +339,9 @@ export function extractIntent(text: string): Intent {
   // 1. Travel Search Detection
   const [origin, destination] = extractCities(cleanText);
   const transport = extractTransportType(cleanText);
-  const [date, timePref] = extractDateAndTime(cleanText);
+  const [date, rawTimePref] = extractDateAndTime(cleanText);
+  const timeDetails = extractDepartureAndArrivalTimes(cleanText);
+  const timePref = rawTimePref || timeDetails.timeSlot;
   const budget = extractBudget(cleanText);
   const pref = extractPreference(cleanText);
 
@@ -234,6 +367,8 @@ export function extractIntent(text: string): Intent {
       transport_type: transport || "train",
       budget,
       language,
+      requested_departure_time: timeDetails.requestedDepartureTime,
+      requested_arrival_time: timeDetails.requestedArrivalTime,
     };
   }
 
