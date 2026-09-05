@@ -92,7 +92,7 @@
     "currency": "INR",
     "source": "KSRTC",
     "service_id": "KSRTC-TR006",
-    "url": "https://www.ksrtc.in/oprs-web/booking/tripDetails.do?serviceId=KSRTC-TR006"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-bangalore?operator=KSRTC&busType=Airavat+Club+Class"
   },
   {
     "id": "TR007",
@@ -112,7 +112,7 @@
     "currency": "INR",
     "source": "SETC",
     "service_id": "SETC-TR007",
-    "url": "https://www.tnstc.in/serviceDetails.do?serviceNumber=SETC-TR007"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-bangalore?operator=SETC&busType=Ultra+Deluxe"
   },
   {
     "id": "TR010",
@@ -132,7 +132,7 @@
     "currency": "INR",
     "source": "SRS Travels",
     "service_id": "SRS-TR010",
-    "url": "https://www.srsbooking.com"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-bangalore?operator=SRS+Travels&busType=AC+Sleeper"
   },
   {
     "id": "TR008",
@@ -242,7 +242,7 @@
     "currency": "INR",
     "source": "TSRTC",
     "service_id": "TSRTC-HYD01",
-    "url": "https://www.tsrtconline.in/oprs-web/booking/tripDetails.do?serviceId=TSRTC-HYD01"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-hyderabad?operator=TSRTC&busType=Garuda+Plus"
   },
   {
     "id": "TR016",
@@ -262,7 +262,7 @@
     "currency": "INR",
     "source": "Orange Travels",
     "service_id": "ORANGE-HYD02",
-    "url": "https://www.redbus.in/bus-tickets/chennai-to-hyderabad?operator=orange-travels"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-hyderabad?operator=Orange+Travels&busType=AC+Sleeper"
   },
   {
     "id": "TR017",
@@ -342,7 +342,7 @@
     "currency": "INR",
     "source": "KSRTC",
     "service_id": "KSRTC-BLR-HYD",
-    "url": "https://www.ksrtc.in/oprs-web/booking/tripDetails.do?serviceId=KSRTC-BLR-HYD"
+    "url": "https://www.redbus.in/bus-tickets/bangalore-to-hyderabad?operator=KSRTC&busType=Airavat+Club+Class"
   },
   {
     "id": "TR022",
@@ -392,7 +392,7 @@
     "currency": "INR",
     "source": "MSRTC",
     "service_id": "MSRTC-PUN-01",
-    "url": "https://msrtc.maharashtra.gov.in"
+    "url": "https://www.redbus.in/bus-tickets/mumbai-to-pune?operator=MSRTC&busType=Shivneri+AC"
   },
   {
     "id": "TR025",
@@ -442,7 +442,7 @@
     "currency": "INR",
     "source": "RSRTC",
     "service_id": "RSRTC-JAI01",
-    "url": "https://rsrtconline.rajasthan.gov.in"
+    "url": "https://www.redbus.in/bus-tickets/delhi-to-jaipur?operator=RSRTC&busType=Volvo+Super+Deluxe"
   },
   {
     "id": "TR028",
@@ -492,7 +492,7 @@
     "currency": "INR",
     "source": "KSRTC",
     "service_id": "KSRTC-TR030",
-    "url": "https://www.ksrtc.in/oprs-web/booking/tripDetails.do?serviceId=KSRTC-TR030"
+    "url": "https://www.redbus.in/bus-tickets/bangalore-to-chennai?operator=KSRTC&busType=Airavat+Club+Class"
   },
   {
     "id": "TR031",
@@ -542,7 +542,7 @@
     "currency": "INR",
     "source": "SETC",
     "service_id": "SETC-CBE01",
-    "url": "https://www.tnstc.in/serviceDetails.do?serviceNumber=SETC-CBE01"
+    "url": "https://www.redbus.in/bus-tickets/chennai-to-coimbatore?operator=SETC&busType=AC+Sleeper"
   },
   {
     "id": "TR034",

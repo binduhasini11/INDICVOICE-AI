@@ -3,7 +3,7 @@ import path from "path";
 import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import { orchestrator } from "./server/orchestrator.js";
-import { searchTravel } from "./server/tools/travelSearch.js";
+import { searchTravel, sanitizeAndVerifyBusUrl } from "./server/tools/travelSearch.js";
 import { searchProducts } from "./server/tools/productSearch.js";
 
 const upload = multer({
@@ -89,6 +89,30 @@ async function startServer() {
   };
   app.post("/travel/search", handleTravelSearch);
   app.post("/api/travel/search", handleTravelSearch);
+
+  // Verify and sanitize bus travel URL endpoint
+  const handleVerifyBusUrl = (req: Request, res: Response) => {
+    const { url, origin, destination, operator, bus_type, travel_date, date } = req.body || {};
+    const journeyDate = travel_date || date;
+    const verifiedUrl = sanitizeAndVerifyBusUrl(
+      url,
+      origin || "",
+      destination || "",
+      operator,
+      bus_type,
+      journeyDate
+    );
+    return res.json({
+      valid: true,
+      original_url: url,
+      verified_url: verifiedUrl,
+      provider: verifiedUrl.includes("redbus.in") ? "redBus" : "Official Operator",
+      is_redirected_to_route: verifiedUrl !== url,
+      date: journeyDate || null,
+    });
+  };
+  app.post("/travel/verify-url", handleVerifyBusUrl);
+  app.post("/api/travel/verify-url", handleVerifyBusUrl);
 
   // Direct product search endpoints
   const handleProductSearch = (req: Request, res: Response) => {

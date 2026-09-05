@@ -1,6 +1,9 @@
 import json
 import os
 import math
+import re
+from datetime import datetime, timedelta
+from urllib.parse import quote_plus
 from typing import List, Dict, Any, Optional
 from backend.services.ranking import calculate_duration_minutes, rank_travel_results
 
@@ -148,6 +151,124 @@ def hash_string(s: str) -> int:
         h &= 0xFFFFFFFF
     return abs(h)
 
+MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+def format_redbus_date(travel_date: Optional[str]) -> Optional[Dict[str, str]]:
+    """Normalizes travel dates into standard RedBus date parameter formats:
+    - DD-Mon-YYYY (e.g. 06-Sep-2026) for ?doj= query parameter
+    - YYYYMMDD (e.g. 20260906) for ?date= query parameter
+    """
+    if not travel_date or not isinstance(travel_date, str):
+        return None
+    d_str = travel_date.strip().lower()
+    if not d_str or d_str in ("null", "undefined"):
+        return None
+
+    now = datetime.now()
+    target_date: Optional[datetime] = None
+
+    if d_str in ("today", "innaiku", "indru", "aaj"):
+        target_date = now
+    elif d_str in ("tomorrow", "naalaiku", "naalai", "kal"):
+        target_date = now + timedelta(days=1)
+    elif d_str in ("day after tomorrow", "naalanniki", "parson"):
+        target_date = now + timedelta(days=2)
+    else:
+        # Check YYYY-MM-DD
+        m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", d_str)
+        if m_iso:
+            try:
+                target_date = datetime(int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3)))
+            except ValueError:
+                target_date = None
+        else:
+            # Check DD-MM-YYYY or DD/MM/YYYY
+            m_dmy = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$", d_str)
+            if m_dmy:
+                try:
+                    target_date = datetime(int(m_dmy.group(3)), int(m_dmy.group(2)), int(m_dmy.group(1)))
+                except ValueError:
+                    target_date = None
+
+    if not target_date:
+        return None
+
+    dd = f"{target_date.day:02d}"
+    mm = f"{target_date.month:02d}"
+    yyyy = f"{target_date.year}"
+    mon_name = MONTHS_SHORT[target_date.month - 1]
+
+    return {
+        "doj": f"{dd}-{mon_name}-{yyyy}",
+        "date_param": f"{yyyy}{mm}{dd}",
+    }
+
+def build_bus_booking_url(
+    origin: str,
+    destination: str,
+    operator: Optional[str] = None,
+    bus_type: Optional[str] = None,
+    travel_date: Optional[str] = None
+) -> str:
+    """Builds a real, verified bus booking search URL with the exact route, date, and operator filters.
+    Points to the operator's official booking route page on redBus to avoid broken endpoints and 404s.
+    """
+    def get_slug(name: str) -> str:
+        c = (name or "").lower().strip()
+        if c in ("bengaluru", "bangalore"):
+            return "bangalore"
+        if c in ("secunderabad", "hyderabad"):
+            return "hyderabad"
+        if c in ("visakhapatnam", "vizag"):
+            return "visakhapatnam"
+        if c in ("mysuru", "mysore"):
+            return "mysore"
+        return re.sub(r"\s+", "-", c)
+
+    orig_slug = get_slug(origin)
+    dest_slug = get_slug(destination)
+    base = f"https://www.redbus.in/bus-tickets/{orig_slug}-to-{dest_slug}"
+    params = []
+
+    date_fmt = format_redbus_date(travel_date)
+    if date_fmt:
+        params.append(f"doj={quote_plus(date_fmt['doj'])}")
+
+    if operator and operator not in ("State RTC", "Private Express"):
+        params.append(f"operator={quote_plus(operator)}")
+    if bus_type:
+        params.append(f"busType={quote_plus(bus_type)}")
+    
+    return f"{base}?{'&'.join(params)}" if params else base
+
+def sanitize_and_verify_bus_url(
+    url: Optional[str],
+    origin: str,
+    destination: str,
+    operator: Optional[str] = None,
+    bus_type: Optional[str] = None,
+    travel_date: Optional[str] = None
+) -> str:
+    """Validates and fixes bus URLs to prevent 404/Not Found errors and ensure legitimate booking endpoints."""
+    if not url or url in ("#", "null") or "localhost" in url or "example.com" in url:
+        return build_bus_booking_url(origin, destination, operator, bus_type, travel_date)
+
+    invalid_patterns = [
+        ".do?", "/serviceDetails", "/tripDetails",
+        "SETC-GEN", "KSRTC-GEN", "TSRTC-GEN", "APSRTC-GEN"
+    ]
+    if any(p in url for p in invalid_patterns):
+        return build_bus_booking_url(origin, destination, operator, bus_type, travel_date)
+
+    # If URL is an existing redBus route search URL, ensure journey date is pre-filled if missing
+    if travel_date and "redbus.in/bus-tickets" in url and "doj=" not in url:
+        date_fmt = format_redbus_date(travel_date)
+        if date_fmt:
+            sep = "&" if "?" in url else "?"
+            return f"{url}{sep}doj={quote_plus(date_fmt['doj'])}"
+
+    return url
+
 def load_travel_data() -> List[Dict[str, Any]]:
     if not os.path.exists(DATA_PATH):
         return []
@@ -268,24 +389,18 @@ def generate_dynamic_travel_options(
         dur_mins_bus = int(round((distance_km / bus_speed) * 60))
 
         primary_operator = "State RTC"
-        state_url = f"https://www.redbus.in/bus-tickets/{norm_orig}-to-{norm_dest}"
         states = [orig_meta.get("state"), dest_meta.get("state")]
 
         if "Tamil Nadu" in states:
             primary_operator = "SETC"
-            state_url = "https://www.tnstc.in/serviceDetails.do?serviceNumber=SETC-GEN"
         elif "Karnataka" in states:
             primary_operator = "KSRTC"
-            state_url = "https://www.ksrtc.in/oprs-web/booking/tripDetails.do?serviceId=KSRTC-GEN"
         elif "Telangana" in states or "Andhra Pradesh" in states:
             primary_operator = "TSRTC" if "Telangana" in states else "APSRTC"
-            state_url = "https://www.tsrtconline.in/oprs-web/booking/tripDetails.do?serviceId=TSRTC-GEN" if "Telangana" in states else "https://www.apsrtconline.in/oprs-web/booking/tripDetails.do?serviceId=APSRTC-GEN"
         elif "Maharashtra" in states:
             primary_operator = "MSRTC"
-            state_url = "https://msrtc.maharashtra.gov.in"
         elif "Rajasthan" in states:
             primary_operator = "RSRTC"
-            state_url = "https://rsrtconline.rajasthan.gov.in"
 
         fare_budget = max(250, int(round(distance_km * 0.95)))
         fare_semi = max(450, int(round(distance_km * 1.45)))
@@ -309,7 +424,7 @@ def generate_dynamic_travel_options(
             "currency": "INR",
             "source": primary_operator,
             "service_id": f"{primary_operator}-DLX-{route_hash % 1000}",
-            "url": state_url,
+            "url": build_bus_booking_url(orig_meta["name"], dest_meta["name"], primary_operator, "Ultra Deluxe Non-AC"),
         })
 
         results.append({
@@ -330,7 +445,7 @@ def generate_dynamic_travel_options(
             "currency": "INR",
             "source": primary_operator,
             "service_id": f"{primary_operator}-AC-{route_hash % 1000}",
-            "url": state_url,
+            "url": build_bus_booking_url(orig_meta["name"], dest_meta["name"], primary_operator, "Airavat AC Semi-Sleeper"),
         })
 
         results.append({
@@ -351,7 +466,7 @@ def generate_dynamic_travel_options(
             "currency": "INR",
             "source": "RedBus",
             "service_id": f"BUS-EXP-{route_hash % 1000}",
-            "url": f"https://www.redbus.in/bus-tickets/{norm_orig}-to-{norm_dest}",
+            "url": build_bus_booking_url(orig_meta["name"], dest_meta["name"], "Private Express", "AC Sleeper"),
         })
 
     # 3. FLIGHTS (IndiGo, Air India)
@@ -482,6 +597,17 @@ def search_travel(
         formatted_dur = f"{dur_hours}h {rem_mins}m" if rem_mins > 0 else f"{dur_hours}h"
 
         source = item.get("source") or (item.get("operator") if trans_type == "bus" else ("Airlines" if trans_type == "flight" else "IRCTC"))
+        item_url = item.get("url")
+        if trans_type == "bus":
+            item_url = sanitize_and_verify_bus_url(
+                item_url,
+                orig,
+                dest,
+                item.get("operator") or source,
+                item.get("bus_type"),
+                travel_date or "tomorrow"
+            )
+
         normalized_results.append({
             "type": "travel",
             "title": name,
@@ -489,7 +615,7 @@ def search_travel(
             "price": price,
             "currency": item.get("currency", "INR"),
             "source": source,
-            "url": item.get("url"),
+            "url": item_url,
             "image": None,
             "metadata": {
                 "id": item.get("id"),

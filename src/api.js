@@ -199,3 +199,35 @@ export async function transcribeAudio(audioBlob) {
 
   return await response.json();
 }
+
+/**
+ * Verify and sanitize bus travel URL endpoint.
+ * Ensures the link points to the authentic operator or RedBus booking route.
+ */
+export async function verifyBusUrl({ url, origin, destination, operator, bus_type, travel_date, date }) {
+  try {
+    const journeyDate = travel_date || date;
+    const response = await robustFetch("/travel/verify-url", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        origin,
+        destination,
+        operator,
+        bus_type,
+        travel_date: journeyDate,
+      }),
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (err) {
+    console.warn("URL verification endpoint failed, falling back to local resolver:", err);
+  }
+  return null;
+}
+

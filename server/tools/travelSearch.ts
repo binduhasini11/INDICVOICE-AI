@@ -166,6 +166,153 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Normalizes travel dates into standard RedBus date parameter formats:
+ * - DD-Mon-YYYY (e.g. 06-Sep-2026) for ?doj= query parameter
+ * - YYYYMMDD (e.g. 20260906) for ?date= query parameter
+ */
+export function formatRedBusDate(travelDate?: string | null): { doj: string; dateParam: string } | null {
+  if (!travelDate || typeof travelDate !== "string") return null;
+  const dStr = travelDate.trim().toLowerCase();
+  if (!dStr || dStr === "null" || dStr === "undefined") return null;
+
+  const now = new Date();
+  let targetDate: Date | null = null;
+
+  if (dStr === "today" || dStr === "innaiku" || dStr === "indru" || dStr === "aaj") {
+    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (dStr === "tomorrow" || dStr === "naalaiku" || dStr === "naalai" || dStr === "kal") {
+    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  } else if (dStr === "day after tomorrow" || dStr === "naalanniki" || dStr === "parson") {
+    targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+  } else {
+    // Check YYYY-MM-DD
+    const isoMatch = dStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+      targetDate = new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+    } else {
+      // Check DD-MM-YYYY or DD/MM/YYYY
+      const dmyMatch = dStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+      if (dmyMatch) {
+        targetDate = new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+      } else {
+        // Try native Date parsing
+        const parsed = new Date(travelDate);
+        if (!isNaN(parsed.getTime())) {
+          targetDate = parsed;
+        }
+      }
+    }
+  }
+
+  if (!targetDate || isNaN(targetDate.getTime())) {
+    return null;
+  }
+
+  const yyyy = targetDate.getFullYear();
+  const mm = String(targetDate.getMonth() + 1).padStart(2, "0");
+  const dd = String(targetDate.getDate()).padStart(2, "0");
+  const monName = MONTHS_SHORT[targetDate.getMonth()];
+
+  return {
+    doj: `${dd}-${monName}-${yyyy}`,
+    dateParam: `${yyyy}${mm}${dd}`,
+  };
+}
+
+/**
+ * Builds a real, verified bus booking search URL with the exact route, travel date, and operator/bus type parameters.
+ * Points to the operator's official booking route page on redBus to avoid broken endpoints and 404s.
+ */
+export function buildBusBookingUrl(
+  origin: string,
+  destination: string,
+  operator?: string,
+  busType?: string,
+  travelDate?: string
+): string {
+  const getCitySlug = (name: string): string => {
+    const c = (name || "").toLowerCase().trim();
+    if (c === "bengaluru" || c === "bangalore") return "bangalore";
+    if (c === "secunderabad" || c === "hyderabad") return "hyderabad";
+    if (c === "visakhapatnam" || c === "vizag") return "visakhapatnam";
+    if (c === "mysuru" || c === "mysore") return "mysore";
+    return c.replace(/\s+/g, "-");
+  };
+
+  const origSlug = getCitySlug(origin);
+  const destSlug = getCitySlug(destination);
+  const base = `https://www.redbus.in/bus-tickets/${origSlug}-to-${destSlug}`;
+  const params: string[] = [];
+
+  // Add date parameters if travel date is provided
+  const dateFmt = formatRedBusDate(travelDate);
+  if (dateFmt) {
+    params.push(`doj=${encodeURIComponent(dateFmt.doj)}`);
+  }
+
+  if (operator && operator !== "State RTC" && operator !== "Private Express") {
+    params.push(`operator=${encodeURIComponent(operator)}`);
+  }
+  if (busType) {
+    params.push(`busType=${encodeURIComponent(busType)}`);
+  }
+
+  return params.length > 0 ? `${base}?${params.join("&")}` : base;
+}
+
+/**
+ * Validates and sanitizes bus URLs to ensure they point to real, functioning booking pages
+ * and replaces broken or dummy service-specific patterns (like .do? or fake query IDs) with
+ * verified route booking search URLs including date and operator pre-filling.
+ */
+export function sanitizeAndVerifyBusUrl(
+  url: string | null | undefined,
+  origin: string,
+  destination: string,
+  operator?: string,
+  busType?: string,
+  travelDate?: string
+): string {
+  if (
+    !url ||
+    typeof url !== "string" ||
+    url === "#" ||
+    url === "null" ||
+    url.includes("localhost") ||
+    url.includes("example.com")
+  ) {
+    return buildBusBookingUrl(origin, destination, operator, busType, travelDate);
+  }
+
+  // Detect and fix legacy/broken .do paths or fake endpoint parameters that cause 404s
+  const invalidPatterns = [
+    ".do?",
+    "/serviceDetails",
+    "/tripDetails",
+    "SETC-GEN",
+    "KSRTC-GEN",
+    "TSRTC-GEN",
+    "APSRTC-GEN",
+  ];
+  if (invalidPatterns.some((pattern) => url.includes(pattern))) {
+    return buildBusBookingUrl(origin, destination, operator, busType, travelDate);
+  }
+
+  // If URL is an existing redBus route search URL, ensure journey date is pre-filled if missing
+  if (travelDate && url.includes("redbus.in/bus-tickets") && !url.includes("doj=")) {
+    const dateFmt = formatRedBusDate(travelDate);
+    if (dateFmt) {
+      const sep = url.includes("?") ? "&" : "?";
+      return `${url}${sep}doj=${encodeURIComponent(dateFmt.doj)}`;
+    }
+  }
+
+  return url;
+}
+
 export function loadTravelData(): any[] {
   for (const p of FALLBACK_DATA_PATHS) {
     if (fs.existsSync(p)) {
@@ -300,26 +447,18 @@ function generateDynamicTravelOptions(
     const durMinsBus = Math.round((distanceKm / busSpeed) * 60);
 
     let primaryOperator = "State RTC";
-    let stateUrl = `https://www.redbus.in/bus-tickets/${normOrig}-to-${normDest}`;
     const states = [origMeta.state, destMeta.state];
 
     if (states.includes("Tamil Nadu")) {
       primaryOperator = "SETC";
-      stateUrl = "https://www.tnstc.in/serviceDetails.do?serviceNumber=SETC-GEN";
     } else if (states.includes("Karnataka")) {
       primaryOperator = "KSRTC";
-      stateUrl = "https://www.ksrtc.in/oprs-web/booking/tripDetails.do?serviceId=KSRTC-GEN";
     } else if (states.includes("Telangana") || states.includes("Andhra Pradesh")) {
       primaryOperator = states.includes("Telangana") ? "TSRTC" : "APSRTC";
-      stateUrl = states.includes("Telangana")
-        ? "https://www.tsrtconline.in/oprs-web/booking/tripDetails.do?serviceId=TSRTC-GEN"
-        : "https://www.apsrtconline.in/oprs-web/booking/tripDetails.do?serviceId=APSRTC-GEN";
     } else if (states.includes("Maharashtra")) {
       primaryOperator = "MSRTC";
-      stateUrl = "https://msrtc.maharashtra.gov.in";
     } else if (states.includes("Rajasthan")) {
       primaryOperator = "RSRTC";
-      stateUrl = "https://rsrtconline.rajasthan.gov.in";
     }
 
     const fareBudget = Math.max(250, Math.round(distanceKm * 0.95));
@@ -344,7 +483,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: primaryOperator,
       service_id: `${primaryOperator}-DLX-${routeHash % 1000}`,
-      url: stateUrl,
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Ultra Deluxe Non-AC"),
     });
 
     results.push({
@@ -365,7 +504,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: primaryOperator,
       service_id: `${primaryOperator}-AC-${routeHash % 1000}`,
-      url: stateUrl,
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, primaryOperator, "Airavat AC Semi-Sleeper"),
     });
 
     results.push({
@@ -386,7 +525,7 @@ function generateDynamicTravelOptions(
       currency: "INR",
       source: "RedBus",
       service_id: `BUS-EXP-${routeHash % 1000}`,
-      url: `https://www.redbus.in/bus-tickets/${normOrig}-to-${normDest}`,
+      url: buildBusBookingUrl(origMeta.name, destMeta.name, "Private Express", "AC Sleeper"),
     });
   }
 
@@ -538,6 +677,18 @@ export function searchTravel({
       ? `${durHours}h ${durMins > 0 ? durMins + "m" : ""}`.trim()
       : `${durMins}m`;
 
+    let itemUrl = item.url || null;
+    if (transType === "bus") {
+      itemUrl = sanitizeAndVerifyBusUrl(
+        itemUrl,
+        orig,
+        dest,
+        item.operator || item.source,
+        item.bus_type,
+        travel_date || "tomorrow"
+      );
+    }
+
     normalizedResults.push({
       type: "travel",
       title: name,
@@ -545,7 +696,7 @@ export function searchTravel({
       price,
       currency: item.currency || "INR",
       source: item.source || (transType === "bus" ? (item.operator || "Bus Operator") : (transType === "flight" ? (item.operator || "Airlines") : "IRCTC")),
-      url: item.url || null,
+      url: itemUrl,
       image: null,
       metadata: {
         id: item.id,

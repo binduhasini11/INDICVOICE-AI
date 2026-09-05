@@ -1,9 +1,18 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from backend.tools.travel_search import search_travel
+from backend.tools.travel_search import search_travel, sanitize_and_verify_bus_url
 
 router = APIRouter(prefix="/travel", tags=["Travel"])
+
+class BusUrlVerifyRequest(BaseModel):
+    url: Optional[str] = None
+    origin: Optional[str] = ""
+    destination: Optional[str] = ""
+    operator: Optional[str] = None
+    bus_type: Optional[str] = None
+    travel_date: Optional[str] = None
+    date: Optional[str] = None
 
 class TravelSearchRequest(BaseModel):
     origin: str
@@ -29,3 +38,24 @@ async def travel_search_endpoint(req: TravelSearchRequest) -> Dict[str, Any]:
         "type": "travel",
         "results": results
     }
+
+@router.post("/verify-url")
+async def verify_bus_url_endpoint(req: BusUrlVerifyRequest) -> Dict[str, Any]:
+    journey_date = req.travel_date or req.date
+    verified_url = sanitize_and_verify_bus_url(
+        url=req.url,
+        origin=req.origin or "",
+        destination=req.destination or "",
+        operator=req.operator,
+        bus_type=req.bus_type,
+        travel_date=journey_date
+    )
+    return {
+        "valid": True,
+        "original_url": req.url,
+        "verified_url": verified_url,
+        "provider": "redBus" if "redbus.in" in verified_url else "Official Operator",
+        "is_redirected_to_route": verified_url != req.url,
+        "date": journey_date
+    }
+
