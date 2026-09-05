@@ -58,5 +58,53 @@
     "price": 600,
     "currency": "INR",
     "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR006",
+    "type": "bus",
+    "name": "KSRTC Airavat Club Class",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "07:30",
+    "arrival": "14:00",
+    "price": 750,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR007",
+    "type": "bus",
+    "name": "SETC Ultra Deluxe",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "08:30",
+    "arrival": "15:30",
+    "price": 390,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR008",
+    "type": "flight",
+    "name": "IndiGo 6E-204",
+    "origin": "Delhi",
+    "destination": "Mumbai",
+    "departure": "06:15",
+    "arrival": "08:30",
+    "price": 4200,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR009",
+    "type": "flight",
+    "name": "Air India AI-805",
+    "origin": "Delhi",
+    "destination": "Mumbai",
+    "departure": "07:00",
+    "arrival": "09:15",
+    "price": 4800,
+    "currency": "INR",
+    "source": "Demo Travel Data"
   }
 ]

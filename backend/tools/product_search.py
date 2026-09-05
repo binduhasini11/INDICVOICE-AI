@@ -91,8 +91,16 @@ def search_products(
             if keywords and not any(k in name_cat for k in keywords):
                 continue
 
-        if category and item.get("category", "").lower() != category.lower():
-            continue
+        if category:
+            c = category.lower()
+            item_cat = item.get("category", "").lower()
+            is_match = (
+                item_cat == c or
+                (c == "electronics" and item_cat in ["headphones", "smartwatch", "audio", "gadget"]) or
+                (c == "fashion" and item_cat in ["shoes", "apparel", "footwear"])
+            )
+            if not is_match:
+                continue
 
         if max_price is not None and item.get("price", 0) > max_price:
             continue
