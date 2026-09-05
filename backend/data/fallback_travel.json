@@ -1,0 +1,62 @@
+[
+  {
+    "id": "TR001",
+    "type": "train",
+    "name": "Shatabdi Express",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "06:00",
+    "arrival": "10:30",
+    "price": 450,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR002",
+    "type": "train",
+    "name": "Intercity Express",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "06:40",
+    "arrival": "12:45",
+    "price": 380,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR003",
+    "type": "train",
+    "name": "Brindavan Express",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "07:10",
+    "arrival": "13:20",
+    "price": 520,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR004",
+    "type": "train",
+    "name": "Chennai Express",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "05:30",
+    "arrival": "11:45",
+    "price": 410,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  },
+  {
+    "id": "TR005",
+    "type": "train",
+    "name": "Superfast Express",
+    "origin": "Chennai",
+    "destination": "Bengaluru",
+    "departure": "08:00",
+    "arrival": "13:00",
+    "price": 600,
+    "currency": "INR",
+    "source": "Demo Travel Data"
+  }
+]
