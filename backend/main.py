@@ -30,6 +30,7 @@ app.add_middleware(
 app.include_router(travel_router)
 
 app.include_router(products_router)
+app.include_router(speech_router)
 
 
 @app.get("/")
