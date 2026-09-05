@@ -2,9 +2,14 @@ import { Intent } from "./types.js";
 
 export const KNOWN_CITIES = [
   "Bengaluru", "Bangalore", "Chennai", "Mumbai", "Delhi", "New Delhi",
-  "Hyderabad", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Coimbatore",
-  "Madurai", "Salem", "Trichy", "Tiruchirappalli", "Kochi", "Cochin",
-  "Mysore", "Mysuru", "Goa", "Chandigarh", "Lucknow", "Varanasi", "Patna"
+  "Hyderabad", "Secunderabad", "Kolkata", "Pune", "Ahmedabad", "Jaipur",
+  "Coimbatore", "Madurai", "Salem", "Trichy", "Tiruchirappalli", "Kochi", "Cochin",
+  "Mysore", "Mysuru", "Goa", "Chandigarh", "Lucknow", "Varanasi", "Patna",
+  "Bhopal", "Indore", "Nagpur", "Visakhapatnam", "Vizag", "Vijayawada",
+  "Thiruvananthapuram", "Trivandrum", "Kozhikode", "Calicut", "Mangalore", "Mangaluru",
+  "Surat", "Vadodara", "Agra", "Kanpur", "Amritsar", "Pondicherry", "Puducherry",
+  "Tirupati", "Vellore", "Hubli", "Belgaum", "Udaipur", "Jodhpur", "Gwalior",
+  "Jabalpur", "Raipur", "Ranchi", "Bhubaneswar", "Dehradun", "Shimla"
 ];
 
 function capitalize(s: string): string {
