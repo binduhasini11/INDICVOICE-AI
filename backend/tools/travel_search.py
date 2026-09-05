@@ -33,8 +33,8 @@ def normalize_city(city: str) -> str:
     return CITY_ALIASES.get(city, city)
 
 def search_travel(
-    origin: normalize_city(origin),
-    destination: normalize_city(destination),
+    origin: ,
+    destination: str,
     travel_date: Optional[str] = None,
     time_preference: Optional[str] = None,
     max_price: Optional[float] = None,
