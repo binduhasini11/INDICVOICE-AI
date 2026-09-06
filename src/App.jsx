@@ -10,7 +10,7 @@ import { sendAgentMessage } from "./api";
 import "./App.css";
 
 function App() {
-  // Session ID management - persisted in sessionStorage
+  // Session ID management- persisted in sessionStorage
   const [sessionId] = useState(() => {
     try {
       const stored = sessionStorage.getItem("indicvoice_session_id");
