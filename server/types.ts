@@ -93,4 +93,3 @@ export interface ChatResponse {
   needs_clarification: boolean;
   error_code?: string | null;
 }
-
