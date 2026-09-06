@@ -1,5 +1,4 @@
 import { Intent, SearchResult, DomainResult, BookingDetails } from "./types.js";
-
 export function generateNaturalResponse(
   intent: Intent,
   results: SearchResult[],
@@ -14,7 +13,6 @@ export function generateNaturalResponse(
   if (needsClarification && clarificationQuestion) {
     return clarificationQuestion;
   }
-
   // Booking action response
   if (intentType === "booking_action") {
     if (intent.action === "explain") {
