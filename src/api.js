@@ -1,8 +1,6 @@
 /**
  * Safely resolves the API Base URL.
- * In full-stack container environments (where Vite and Express are hosted on port 3000),
- * API requests should always route to the same origin (empty string "") rather than an
- * unreachable local machine URL like 127.0.0.1:8000.
+ * In full-stack container environments (where Vite and Express are hosted on port 3000), API requests should always route to the same origin (empty string "") rather than an unreachable local machine URL like 127.0.0.1:8000.
  */
 function resolveApiBaseUrl() {
   const envUrl =
