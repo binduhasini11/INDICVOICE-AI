@@ -137,7 +137,6 @@ async function startServer() {
     if (!req.file) {
       return res.status(400).json({ detail: "No audio file uploaded" });
     }
-
     const sarvamKey = process.env.SARVAM_API_KEY;
     if (sarvamKey) {
       try {
