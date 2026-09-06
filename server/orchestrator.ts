@@ -12,7 +12,6 @@ export class CentralOrchestrator {
   async processMessage(message: string, sessionId?: string | null): Promise<ChatResponse> {
     const sid = sessionId || crypto.randomUUID();
     const session = memoryManager.getOrCreateSession(sid);
-
     // 1. Intent & Entity Extraction
     const rawIntent = extractIntent(message);
 
