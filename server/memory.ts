@@ -55,14 +55,12 @@ export class MemoryManager {
 
     const currType = currentIntent.intent;
     const prevType = prevIntent.intent;
-
     // Check if user explicitly switched to a distinct intent
     if (["travel_search", "product_search", "web_search"].includes(currType)) {
       if (["travel_search", "product_search", "web_search"].includes(prevType) && currType !== prevType) {
         return currentIntent;
       }
     }
-
     // If current intent is general_chat or same intent, check if message provides missing slots
     if (currType === "general_chat" && ["travel_search", "product_search"].includes(prevType)) {
       const merged: Intent = { ...prevIntent };
